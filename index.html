@@ -23,8 +23,6 @@
         .stat-box { background: #3a3a3a; padding: 10px; border-radius: 10px; text-align: left; }
         .stat-val { font-size: 18px; font-weight: bold; margin-top: 5px; color: #fff; }
         .stat-lbl { font-size: 11px; color: #aaa; text-transform: uppercase; }
-        
-        /* Small Text for IP/Time */
         .stat-small { font-size: 14px; font-weight: normal; color: #ddd; word-break: break-all; }
 
         /* BUTTONS */
@@ -36,7 +34,8 @@
         
         /* GRAPHS */
         canvas { max-width: 100%; margin-top: 10px; }
-        .graph-container { height: 250px; position: relative; }
+        /* Increased height slightly to make room for X-axis labels */
+        .graph-container { height: 280px; position: relative; }
     </style>
 </head>
 <body>
@@ -84,14 +83,14 @@
 
         <div class="card">
             <h3 style="color:#888; margin:0;">USER ACTIONS</h3>
-            <div class="graph-container" style="height:150px;">
+            <div class="graph-container" style="height:200px;">
                 <canvas id="actionChart"></canvas>
             </div>
         </div>
 
         <div class="card">
             <h3 style="color:#888; margin:0;">SYSTEM HEALTH</h3>
-            <div class="graph-container" style="height:150px;">
+            <div class="graph-container" style="height:200px;">
                 <canvas id="healthChart"></canvas>
             </div>
         </div>
@@ -103,8 +102,8 @@
     const CRED_PASS = "miles";
     
     // --- 📊 THINGSPEAK CONFIG (ENTER YOURS HERE) ---
-    const TS_ID = "3242667"; 
-    const TS_KEY = "2TEMAWBTVQ7UCKJO";
+    const TS_ID = "YOUR_CHANNEL_ID_HERE"; 
+    const TS_KEY = "YOUR_READ_API_KEY_HERE";
 
     // --- ☁️ HIVE CONFIG ---
     const BROKER = "8a231350138548ea8166676276108f4e.s1.eu.hivemq.cloud"; 
@@ -133,45 +132,73 @@
         const data = await response.json();
         const feeds = data.feeds;
 
-        // 1. Prepare Data
-        const times = feeds.map(f => new Date(f.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
-        const temps = feeds.map(f => f.field1);
-        const health = feeds.map(f => f.field3); 
-
-        // 2. Count Actions
-        let actions = {ON:0, OFF:0, PHOTO:0, SSH:0};
-        feeds.forEach(f => {
-            if(f.field2 == "10") actions.ON++;
-            if(f.field2 == "20") actions.OFF++;
-            if(f.field2 == "30") actions.PHOTO++;
-            if(f.field2 == "40" || f.field2 == "50") actions.SSH++;
+        // 1. Prepare Time Labels
+        const times = feeds.map(f => {
+            let d = new Date(f.created_at);
+            return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
         });
 
-        // 3. Draw Charts
+        // 2. Prepare Data Streams
+        const temps = feeds.map(f => f.field1);
+        const health = feeds.map(f => f.field3); 
+        
+        // 3. Prepare Actions (Split into separate arrays for stacking)
+        // We create a "1" or "0" for each action type at every timestamp
+        const onData = feeds.map(f => f.field2 == "10" ? 1 : 0);
+        const offData = feeds.map(f => f.field2 == "20" ? 1 : 0);
+        const photoData = feeds.map(f => f.field2 == "30" ? 1 : 0);
+        const sshData = feeds.map(f => (f.field2 == "40" || f.field2 == "50") ? 1 : 0);
+
+        // --- DRAW CHARTS ---
+
+        // A. TEMP CHART (Line with Time Axis)
         new Chart(document.getElementById('tempChart'), {
             type: 'line',
             data: { labels: times, datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', tension: 0.4, pointRadius: 0 }] },
-            options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: {color: '#444'} } }, plugins: { legend: {display: false} } }
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                scales: { 
+                    x: { display: true, ticks: { maxTicksLimit: 6, color: '#888' }, grid: {display:false} }, 
+                    y: { grid: {color: '#444'} } 
+                }, 
+                plugins: { legend: {display: false} } 
+            }
         });
 
+        // B. ACTION CHART (Vertical Stacked with Time Axis)
         new Chart(document.getElementById('actionChart'), {
             type: 'bar',
             data: {
-                labels: ['Total Activity'],
+                labels: times,
                 datasets: [
-                    { label: 'ON', data: [actions.ON], backgroundColor: '#28a745' },
-                    { label: 'OFF', data: [actions.OFF], backgroundColor: '#dc3545' },
-                    { label: 'PHOTO', data: [actions.PHOTO], backgroundColor: '#17a2b8' },
-                    { label: 'SSH', data: [actions.SSH], backgroundColor: '#6c757d' }
+                    { label: 'ON', data: onData, backgroundColor: '#28a745' },     // Green
+                    { label: 'OFF', data: offData, backgroundColor: '#dc3545' },    // Red
+                    { label: 'PHOTO', data: photoData, backgroundColor: '#17a2b8' }, // Blue
+                    { label: 'SSH', data: sshData, backgroundColor: '#6c757d' }     // Gray
                 ]
             },
-            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: {position: 'bottom', labels:{color:'white'}} }, scales: { x: { stacked: true, grid: {color: '#444'} }, y: { stacked: true, display: false } } }
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                plugins: { legend: {position: 'bottom', labels:{color:'white'}} }, 
+                scales: { 
+                    x: { stacked: true, display: true, ticks: { maxTicksLimit: 6, color: '#888' }, grid: {display:false} }, 
+                    y: { stacked: true, display: false } // Hide Y axis numbers since it's just 0 or 1
+                } 
+            }
         });
 
+        // C. HEALTH CHART (Bar with Time Axis)
         new Chart(document.getElementById('healthChart'), {
             type: 'bar',
-            data: { labels: times, datasets: [{ label: 'System Pulse', data: health, backgroundColor: '#ffc107', barPercentage: 1.0, categoryPercentage: 1.0 }] },
-            options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { display: false } }, plugins: { legend: {display: false} } }
+            data: { labels: times, datasets: [{ label: 'Pulse', data: health, backgroundColor: '#ffc107', barPercentage: 1.0, categoryPercentage: 1.0 }] },
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                scales: { 
+                    x: { display: true, ticks: { maxTicksLimit: 6, color: '#888' }, grid: {display:false} }, 
+                    y: { display: false } 
+                }, 
+                plugins: { legend: {display: false} } 
+            }
         });
     }
 
@@ -191,7 +218,6 @@
         } else if(msg.destinationName.includes("data")) {
             try {
                 const d = JSON.parse(msg.payloadString);
-                // UPDATE ALL 4 DATA POINTS
                 if(d.temp) document.getElementById("disp-temp").innerText = d.temp;
                 if(d.signal) document.getElementById("disp-signal").innerText = d.signal + "%";
                 if(d.time) document.getElementById("disp-time").innerText = d.time;
