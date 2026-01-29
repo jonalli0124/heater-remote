@@ -19,7 +19,6 @@
 * **Overheat Protection:** (Currently disabled in code) Logic exists to cut power if temperature exceeds 85°F.
 
 
-* **Remote Maintenance:** A hidden "SSH" toggle allows you to open a secure maintenance tunnel to update code without physical access.
 
 ---
 
@@ -31,7 +30,6 @@
 | **HiveMQ Cloud** | **The Messenger.** Uses MQTT protocol to send instant commands (ON/OFF) and receive live status updates (Temp/Signal) between the Pi and the Web. | Free | Broker URL, Port 8883 (Pi), Port 8884 (Web), User/Pass |
 | **ThingSpeak** | **The Historian.** Stores data points every 10 minutes to generate the 3 graphs (Temp, Actions, Health). | Free | Channel ID, Write API Key (Pi), Read API Key (Web) |
 | **Healthchecks.io** | **The Watchdog.** Expects a "heartbeat" ping from the Pi every 10 minutes. If it misses 2 pings (20 min grace), it alerts you. | Free | Unique Ping URL (UUID) |
-| **Cloudflare Tunnel** | **The Backdoor.** Provides secure SSH access (`ssh miles@...`) over the cellular network without needing a static IP or port forwarding. | Free | `cloudflared` token (on Pi) |
 | **Soracom** | **The Carrier.** Provides the cellular internet connection for the hardware. | Paid | SIM ICCID, APN Configuration |
 
 ---
@@ -57,7 +55,6 @@
 * **Photos:** ~11 MB (One 30KB image every 2 hours)
 * **History/Graphs:** ~5 MB (Data points every 10 mins)
 * **Overhead:** ~5 MB (DNS, Time Sync, etc.)
-* **SSH Tunnel:** 0 MB (Unless activated by user)
 
 
 
@@ -82,8 +79,4 @@
 
 ---
 
-#### **6. Maintenance Reference**
 
-* **To Update Code:** Toggle "SSH ON" -> Terminal
-* **To View Status:** Go to `https://[your-github-username].github.io/miles-remote/`
-* **To Reset System:** Unplug power -> Plug back in (Script auto-starts).
