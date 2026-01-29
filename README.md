@@ -84,6 +84,6 @@
 
 #### **6. Maintenance Reference**
 
-* **To Update Code:** Toggle "SSH ON" -> Terminal: `ssh miles@admin.miles-remote.com`
+* **To Update Code:** Toggle "SSH ON" -> Terminal
 * **To View Status:** Go to `https://[your-github-username].github.io/miles-remote/`
 * **To Reset System:** Unplug power -> Plug back in (Script auto-starts).
