@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Miles Heater</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: white; padding: 20px; }
+        .card { background: #333; padding: 20px; border-radius: 15px; max-width: 400px; margin: 0 auto; }
+        .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 18px; border-radius: 8px; border: none; cursor: pointer; color: white;}
+        .on { background: #28a745; }
+        .off { background: #dc3545; }
+        .blue { background: #17a2b8; }
+        .gray { background: #6c757d; }
+        #status { font-size: 40px; font-weight: bold; margin: 20px 0; }
+        #data { color: #aaa; font-size: 14px; margin-bottom: 20px; }
+        img { width: 100%; border-radius: 10px; margin-top: 15px; border: 2px solid #555; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Heater Control</h2>
+    
+    <div id="status">...</div>
+    <div id="data">Connecting...</div>
+
+    <button class="btn on" onclick="pub('ON')">TURN ON</button>
+    <button class="btn off" onclick="pub('OFF')">TURN OFF</button>
+    <hr>
+    <button class="btn blue" onclick="pub('TAKE_PHOTO')">📸 REQUEST PHOTO</button>
+    <img id="cam-view" src="" />
+    
+    <br><br>
+    <small>Admin Controls</small>
+    <div style="display:flex; gap:10px;">
+        <button class="btn gray" onclick="pub('SSH_START')">SSH ON</button>
+        <button class="btn gray" onclick="pub('SSH_STOP')">SSH OFF</button>
+    </div>
+</div>
+
+<script>
+    // --- YOUR HIVE CONFIG ---
+    const BROKER = "8a231350138548ea8166676276108f4e.s1.eu.hivemq.cloud"; 
+    const PORT = 8884; // WebSocket Port
+    const USER = "miles";
+    const PASS = "Grit-2026!";
+
+    const T_CMD = "miles/heater/command";
+    const T_STAT = "miles/heater/status";
+    const T_DATA = "miles/heater/data";
+    const T_IMG = "miles/heater/image";
+
+    client = new Paho.MQTT.Client(BROKER, PORT, "web_" + parseInt(Math.random()*100));
+
+    client.onConnectionLost = function (responseObject) {
+        document.getElementById("status").innerText = "OFFLINE";
+        document.getElementById("status").style.color = "gray";
+    };
+
+    client.onMessageArrived = function (msg) {
+        if (msg.destinationName === T_STAT) {
+            document.getElementById("status").innerText = msg.payloadString;
+            document.getElementById("status").style.color = (msg.payloadString === "ON") ? "#28a745" : "red";
+        } else if (msg.destinationName === T_DATA) {
+            document.getElementById("data").innerText = msg.payloadString;
+        } else if (msg.destinationName === T_IMG) {
+            console.log("Image received!");
+            var blob = new Blob([msg.payloadBytes], {type: "image/jpeg"});
+            var url = URL.createObjectURL(blob);
+            var img = document.getElementById("cam-view");
+            img.src = url;
+            img.style.display = "block";
+        }
+    };
+
+    client.connect({
+        useSSL: true, userName: USER, password: PASS,
+        onSuccess: function () {
+            client.subscribe(T_STAT);
+            client.subscribe(T_DATA);
+            client.subscribe(T_IMG);
+            pub("GET_STATUS"); 
+        }
+    });
+
+    function pub(cmd) {
+        message = new Paho.MQTT.Message(cmd);
+        message.destinationName = T_CMD;
+        client.send(message);
+    }
+</script>
+
+</body>
+</html>
