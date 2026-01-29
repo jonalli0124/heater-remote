@@ -67,9 +67,7 @@
                 <button class="btn btn-ssh" onclick="pub('SSH_STOP')">🔒 SSH OFF</button>
             </div>
 
-            <img id="cam-view" 
-                 src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTqYR0cKwUU1nQSd6bea7BDWC9MCvPszQEPRQ&s" 
-                 style="width:100%; border-radius:10px; display:block; margin-top:10px; border:2px solid #555;">
+            <img id="cam-view" src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTqYR0cKwUU1nQSd6bea7BDWC9MCvPszQEPRQ&s" style="width:100%; border-radius:10px; display:block; margin-top:10px; border:2px solid #555;">
         </div>
 
         <div class="card">
@@ -81,7 +79,7 @@
 
         <div class="card">
             <h3 style="color:#888; margin:0;">USER ACTIONS</h3>
-            <div class="graph-container" style="height:200px;">
+            <div class="graph-container" style="height:150px;">
                 <canvas id="actionChart"></canvas>
             </div>
         </div>
@@ -126,15 +124,14 @@
 
     // --- GRAPHS ---
     async function loadHistory() {
-        // Fetch last 24h of data (approx 300 points)
         const response = await fetch(`https://api.thingspeak.com/channels/${TS_ID}/feeds.json?api_key=${TS_KEY}&results=400`);
         const data = await response.json();
         const feeds = data.feeds;
 
-        // 1. Data Prep
+        // 1. Prepare Data
         const times = feeds.map(f => new Date(f.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
         const temps = feeds.map(f => f.field1);
-        const health = feeds.map(f => f.field3);
+        const health = feeds.map(f => f.field3); // '1' if alive
 
         // 2. Count Actions
         let actions = {ON:0, OFF:0, PHOTO:0, SSH:0};
@@ -146,34 +143,62 @@
         });
 
         // 3. Draw Charts
-        // TEMP CHART
+
+        // A. TEMP CHART (LINE)
         new Chart(document.getElementById('tempChart'), {
             type: 'line',
             data: {
                 labels: times,
                 datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', tension: 0.4, pointRadius: 0 }]
             },
-            options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: {color: '#444'} } }, plugins: { legend: {display: false} } }
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                scales: { x: { display: false }, y: { grid: {color: '#444'} } }, 
+                plugins: { legend: {display: false} } 
+            }
         });
 
-        // ACTION CHART
+        // B. ACTION CHART (STACKED BAR)
         new Chart(document.getElementById('actionChart'), {
             type: 'bar',
             data: {
-                labels: ['ON', 'OFF', 'PHOTO', 'SSH'],
-                datasets: [{ label: 'Actions', data: [actions.ON, actions.OFF, actions.PHOTO, actions.SSH], backgroundColor: ['#28a745', '#dc3545', '#17a2b8', '#6c757d'] }]
+                labels: ['Total Activity'], // Single bar
+                datasets: [
+                    { label: 'ON', data: [actions.ON], backgroundColor: '#28a745' },     // Green
+                    { label: 'OFF', data: [actions.OFF], backgroundColor: '#dc3545' },    // Red
+                    { label: 'PHOTO', data: [actions.PHOTO], backgroundColor: '#17a2b8' }, // Blue
+                    { label: 'SSH', data: [actions.SSH], backgroundColor: '#6c757d' }     // Gray
+                ]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: {display: false} }, scales: { y: { grid: {color: '#444'} } } }
+            options: { 
+                indexAxis: 'y', // Makes it Horizontal
+                responsive: true, maintainAspectRatio: false, 
+                plugins: { legend: {position: 'bottom', labels:{color:'white'}} }, 
+                scales: { 
+                    x: { stacked: true, grid: {color: '#444'} }, 
+                    y: { stacked: true, display: false } 
+                } 
+            }
         });
 
-        // HEALTH CHART
+        // C. HEALTH CHART (BAR)
         new Chart(document.getElementById('healthChart'), {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: times,
-                datasets: [{ label: 'System Pulse', data: health, borderColor: '#ffc107', backgroundColor: 'rgba(255, 193, 7, 0.2)', fill: true, stepped: true, pointRadius: 0 }]
+                datasets: [{ 
+                    label: 'System Pulse', 
+                    data: health, 
+                    backgroundColor: '#ffc107',
+                    barPercentage: 1.0, // Make bars touch
+                    categoryPercentage: 1.0 
+                }]
             },
-            options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { display: false, min: 0, max: 2 } }, plugins: { legend: {display: false} } }
+            options: { 
+                responsive: true, maintainAspectRatio: false, 
+                scales: { x: { display: false }, y: { display: false } }, 
+                plugins: { legend: {display: false} } 
+            }
         });
     }
 
