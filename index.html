@@ -6,46 +6,46 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #121212; color: white; text-align: center; margin: 0; padding: 15px; }
-        .card { background: #1e1e1e; padding: 15px; border-radius: 15px; max-width: 600px; margin: 0 auto 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
-        .stat-box { background: #2a2a2a; padding: 12px; border-radius: 10px; text-align: left; }
-        .stat-val { font-size: 20px; font-weight: bold; color: #fff; margin-top: 4px; }
-        .stat-lbl { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-        .btn { display: block; width: 100%; margin: 8px 0; padding: 14px; font-size: 15px; font-weight: bold; border-radius: 10px; border: none; color: white; cursor: pointer; transition: 0.2s; }
+        /* Fixed layout to prevent infinite scrolling */
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; margin: 0; padding: 10px; overflow-x: hidden; }
+        .card { background: #1e1e1e; padding: 15px; border-radius: 15px; max-width: 500px; margin: 0 auto 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .stat-box { background: #2a2a2a; padding: 10px; border-radius: 10px; text-align: left; }
+        .stat-val { font-size: 18px; font-weight: bold; color: #fff; }
+        .stat-lbl { font-size: 9px; color: #888; text-transform: uppercase; }
+        .btn { display: block; width: 100%; margin: 8px 0; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 8px; border: none; color: white; cursor: pointer; }
         .btn-heat { background: #ff4500; }
         .btn-ac { background: #007bff; }
-        .btn-ssh { background: #444; }
-        .btn:active { transform: scale(0.98); opacity: 0.8; }
-        #command-log { height: 100px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 8px; font-size: 11px; }
+        /* Fixed height for log to prevent page expansion */
+        #command-log { height: 80px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 8px; text-align: left; border-radius: 8px; font-size: 10px; margin-top: 10px; border: 1px solid #333; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h3 style="color:#888; margin-top:0;">SYSTEM STATUS</h3>
+        <h3 style="color:#888; margin:0 0 10px 0;">SYSTEM STATUS</h3>
         <div class="grid">
             <div class="stat-box"><div class="stat-lbl">PI TEMP (T1)</div><div class="stat-val" id="disp-temp">--°F</div></div>
             <div class="stat-box"><div class="stat-lbl">CELL SIGNAL</div><div class="stat-val" id="disp-signal">--%</div></div>
-            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:13px;">--</div></div>
-            <div class="stat-box"><div class="stat-lbl">LAST PACKET</div><div class="stat-val" id="disp-time" style="font-size:13px;">--</div></div>
+            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:12px;">--</div></div>
+            <div class="stat-box"><div class="stat-lbl">LAST PACKET</div><div class="stat-val" id="disp-time" style="font-size:12px;">--</div></div>
         </div>
         <button class="btn btn-heat" onclick="pub('relay-heater', 'ON')">ACTIVATE HEATER</button>
         <button class="btn btn-ac" onclick="pub('relay-heater', 'OFF')">ACTIVATE AC (HEATER OFF)</button>
     </div>
 
     <div class="card">
-        <h3 style="color:#888; margin-top:0;">TEMPERATURE HISTORY (1H)</h3>
-        <canvas id="tempChart" style="height:200px;"></canvas>
+        <h3 style="color:#888; margin:0 0 5px 0;">TEMPERATURE (1H)</h3>
+        <canvas id="tempChart" style="max-height:180px;"></canvas>
     </div>
 
     <div class="card">
-        <h3 style="color:#888; margin-top:0;">SERVICE CONTROLS</h3>
-        <div style="display: flex; gap: 10px;">
-            <button class="btn btn-ssh" onclick="pub('tunnel', 'ON')">START SSH</button>
-            <button class="btn btn-ssh" style="background:#222;" onclick="pub('tunnel', 'OFF')">STOP SSH</button>
+        <h3 style="color:#888; margin:0 0 10px 0;">SERVICE CONTROLS</h3>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn" style="background:#444;" onclick="pub('tunnel', 'ON')">START SSH</button>
+            <button class="btn" style="background:#222;" onclick="pub('tunnel', 'OFF')">STOP SSH</button>
         </div>
-        <div id="command-log">> System initialized...</div>
+        <div id="command-log">> UI Ready...</div>
     </div>
 
 <script>
@@ -53,46 +53,48 @@
     const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d";
     const FEEDS = ["temp-1", "temp-2", "temp-3"];
 
-    // 1. Initialize Chart
+    // 1. Initialize Graph
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
             datasets: [
-                { label: 'Pi CPU', borderColor: '#ff4500', data: [], tension: 0.3, pointRadius: 0 },
-                { label: 'T2', borderColor: '#007bff', data: [], tension: 0.3, pointRadius: 0 },
-                { label: 'T3', borderColor: '#28a745', data: [], tension: 0.3, pointRadius: 0 }
+                { label: 'T1', borderColor: '#ff4500', data: [], tension: 0.2, pointRadius: 0, borderWidth: 2 },
+                { label: 'T2', borderColor: '#007bff', data: [], tension: 0.2, pointRadius: 0, borderWidth: 1 },
+                { label: 'T3', borderColor: '#28a745', data: [], tension: 0.2, pointRadius: 0, borderWidth: 1 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: { x: { display: false }, y: { grid: { color: '#333' }, ticks: { color: '#666' } } },
-            plugins: { legend: { labels: { color: '#888', boxWidth: 10 } } }
+            scales: { x: { display: false }, y: { grid: { color: '#333' }, ticks: { color: '#666', size: 10 } } },
+            plugins: { legend: { labels: { color: '#888', boxWidth: 8, font: { size: 10 } } } }
         }
     });
 
-    // 2. Fetch History from Adafruit API
+    // 2. Fetch History - Optimized to prevent loops
     async function fetchHistory() {
-        addLog("Syncing historical data...");
         for (let i = 0; i < FEEDS.length; i++) {
-            const url = `https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${FEEDS[i]}/data?hours=1`;
-            const resp = await fetch(url, { headers: {'X-AIO-Key': AIO_KEY} });
-            const data = await resp.json();
-            const points = data.reverse();
-            points.forEach(p => {
-                tempChart.data.datasets[i].data.push(parseFloat(p.value));
-                if(i === 0) {
-                    const ts = new Date(p.created_at).toLocaleTimeString([], {hour12:false});
-                    tempChart.data.labels.push(ts);
-                }
-            });
+            try {
+                const url = `https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${FEEDS[i]}/data?hours=1`;
+                const resp = await fetch(url, { headers: {'X-AIO-Key': AIO_KEY} });
+                const data = await resp.json();
+                const points = data.reverse();
+                
+                points.forEach(p => {
+                    tempChart.data.datasets[i].data.push(parseFloat(p.value));
+                    if(i === 0) {
+                        const ts = new Date(p.created_at).toLocaleTimeString([], {hour12:false});
+                        tempChart.data.labels.push(ts);
+                    }
+                });
+            } catch(e) { console.error("History sync failed for " + FEEDS[i]); }
         }
         tempChart.update();
     }
 
-    // 3. MQTT Setup
+    // 3. MQTT
     const client = new Paho.MQTT.Client("io.adafruit.com", 443, "web_" + Math.random());
     client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
         client.subscribe(AIO_USER + "/feeds/#");
@@ -125,16 +127,14 @@
         tempChart.update('none');
     }
 
-    function addLog(msg) {
-        const log = document.getElementById("command-log");
-        log.innerHTML = `<div>> ${msg}</div>` + log.innerHTML;
-    }
-
     function pub(feed, cmd) {
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = `${AIO_USER}/feeds/${feed}`;
         client.send(m);
-        addLog(`Sent ${cmd} to ${feed}`);
+        const log = document.getElementById("command-log");
+        log.innerHTML = `<div>> ${cmd} -> ${feed}</div>` + log.innerHTML;
+        // Auto-scroll log to top
+        log.scrollTop = 0;
     }
 </script>
 </body>
