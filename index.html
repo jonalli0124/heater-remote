@@ -4,8 +4,9 @@
     <title>Miles Heater | Control Center</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; background: #1a1a1a; color: white; padding: 20px; }
+        body { font-family: -apple-system, sans-serif; text-align: center; background: #1a1a1a; color: white; padding: 20px; margin: 0; }
         .card { background: #2d2d2d; padding: 15px; border-radius: 20px; max-width: 600px; margin: 0 auto 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
         .stat-box { background: #3a3a3a; padding: 10px; border-radius: 10px; text-align: left; }
@@ -19,6 +20,7 @@
         .btn-off { background: linear-gradient(135deg, #dc3545, #c82333); }
         .btn-blue { background: #17a2b8; }
         #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; }
+        canvas { width: 100% !important; height: 150px !important; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -30,16 +32,19 @@
             <span id="ind-heat" class="indicator"></span> <span style="font-size:12px; color:#888;">HEATER UNIT</span>
         </div>
         <div class="grid">
-            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip">--.---</div></div>
+            <div class="stat-box"><div class="stat-lbl">AC TEMP (T1)</div><div class="stat-val" id="disp-temp">--°F</div></div>
+            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:14px;">--.---</div></div>
             <div class="stat-box"><div class="stat-lbl">SIGNAL</div><div class="stat-val" id="disp-signal">--%</div></div>
-            <div class="stat-box" style="grid-column: span 2;">
-                <div class="stat-lbl">LAST PACKET RECEIVED</div>
-                <div class="stat-val" id="disp-time" style="font-family: monospace;">--:--:--</div>
-            </div>
+            <div class="stat-box"><div class="stat-lbl">LAST PACKET</div><div class="stat-val" id="disp-time" style="font-size:14px; font-family: monospace;">--:--:--</div></div>
         </div>
         <button class="btn btn-on" onclick="pub('ON')">ACTIVATE HEATER</button>
         <button class="btn btn-off" onclick="pub('OFF')">ACTIVATE AC (HEAT OFF)</button>
         <button class="btn btn-blue" onclick="pub('SNAP')">📸 TAKE PHOTO</button>
+    </div>
+
+    <div class="card">
+        <h3 style="color:#888; margin:0;">TEMPERATURE HISTORY</h3>
+        <canvas id="tempChart"></canvas>
     </div>
 
     <div class="card">
@@ -55,6 +60,33 @@
     const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d"; 
     const client = new Paho.MQTT.Client("io.adafruit.com", 443, "web_" + Math.random());
 
+    // --- Initialize Chart ---
+    const ctx = document.getElementById('tempChart').getContext('2d');
+    const tempChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Temp °F',
+                data: [],
+                borderColor: '#007bff',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                borderWidth: 2,
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { display: false },
+                y: { grid: { color: '#444' }, ticks: { color: '#aaa' } }
+            }
+        }
+    });
+
     client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
         client.subscribe(AIO_USER + "/feeds/#");
     }});
@@ -67,7 +99,19 @@
 
         if(topic.endsWith("ip-address")) {
             document.getElementById("disp-ip").innerText = payload;
-        } else if(topic.endsWith("relay-heater")) {
+        } 
+        else if(topic.endsWith("temp-1")) {
+            document.getElementById("disp-temp").innerText = payload + "°F";
+            // Update Graph
+            tempChart.data.labels.push(now);
+            tempChart.data.datasets[0].data.push(parseFloat(payload));
+            if(tempChart.data.labels.length > 20) {
+                tempChart.data.labels.shift();
+                tempChart.data.datasets[0].data.shift();
+            }
+            tempChart.update();
+        }
+        else if(topic.endsWith("relay-heater")) {
             const isHeater = (payload === "ON");
             document.getElementById("status-display").innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
             document.getElementById("status-display").style.color = isHeater ? "#ff4500" : "#007bff";
