@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Miles Heater</title>
+    <title>Miles Heater | Adafruit IO</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; background: #1a1a1a; color: white; padding: 20px; margin: 0; }
         
@@ -12,8 +13,9 @@
         #login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 1000; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .login-box { background: #222; padding: 30px; border-radius: 15px; width: 80%; max-width: 300px; border: 1px solid #333; }
         .login-input { padding: 12px; font-size: 18px; text-align: center; border-radius: 8px; border: 1px solid #444; background: #000; color: white; width: 100%; margin-bottom: 10px; box-sizing: border-box;}
-        .login-btn { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; margin-top: 10px; }
-        
+        .login-btn { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; margin-top: 10px; cursor: pointer; }
+        .login-btn:hover { background: #0056b3; }
+
         /* APP */
         #app { filter: blur(10px); pointer-events: none; opacity: 0.3; transition: all 0.5s; }
         .card { background: #2d2d2d; padding: 15px; border-radius: 20px; max-width: 600px; margin: 0 auto 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
@@ -24,13 +26,14 @@
         .stat-small { font-size: 14px; font-weight: normal; color: #ddd; word-break: break-all; }
 
         /* BUTTONS */
-        .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; }
+        .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; cursor: pointer; }
+        .btn:active { transform: scale(0.98); }
         .btn-on { background: linear-gradient(135deg, #28a745, #218838); }
         .btn-off { background: linear-gradient(135deg, #dc3545, #c82333); }
         .btn-blue { background: #17a2b8; }
         
         /* SSH BUTTONS */
-        .btn-ssh { font-size: 12px; padding: 10px; width: 48%; display: inline-block; border: 1px solid #444; transition: all 0.3s; }
+        .btn-ssh { font-size: 12px; padding: 10px; width: 48%; display: inline-block; border: 1px solid #444; transition: all 0.3s; cursor: pointer; }
         .ssh-active { background: #17a2b8; color: white; border-color: #17a2b8; box-shadow: 0 0 10px #17a2b8; } 
         .ssh-inactive { background: #3a3a3a; color: #888; } 
         
@@ -42,24 +45,23 @@
 
     <div id="login-screen">
         <div class="login-box">
-            <h2>🔒 Restricted</h2>
-            <input type="text" id="username-in" class="login-input" placeholder="User" autocapitalize="none">
-            <input type="password" id="password-in" class="login-input" placeholder="Pass">
-            <button class="login-btn" onclick="attemptLogin()">UNLOCK</button>
-            <div id="err-msg" style="color:red; display:none; margin-top:10px;">Access Denied</div>
+            <h2>🔒 Security</h2>
+            <p style="color:#666; font-size:12px;">Enter Adafruit IO Key (or hardcode it in source)</p>
+            <input type="password" id="password-in" class="login-input" placeholder="IO Key (aio_...)">
+            <button class="login-btn" onclick="attemptLogin()">CONNECT</button>
+            <div id="err-msg" style="color:red; display:none; margin-top:10px;">Missing Key</div>
         </div>
     </div>
 
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">LIVE CONTROLS</h3>
-            <div id="status-display" style="font-size:40px; font-weight:800; margin-bottom:15px;">...</div>
+            <div id="status-display" style="font-size:40px; font-weight:800; margin-bottom:15px;">CONNECTING...</div>
             
             <div class="grid">
                 <div class="stat-box"><div class="stat-lbl">TEMP</div><div class="stat-val" id="disp-temp">--</div></div>
                 <div class="stat-box"><div class="stat-lbl">SIGNAL</div><div class="stat-val" id="disp-signal">--</div></div>
                 <div class="stat-box"><div class="stat-lbl">LAST UPDATED</div><div class="stat-val stat-small" id="disp-time">--</div></div>
-                <div class="stat-box"><div class="stat-lbl">IP ADDRESS</div><div class="stat-val stat-small" id="disp-ip">--</div></div>
             </div>
 
             <button class="btn btn-on" onclick="pub('ON')">TURN ON</button>
@@ -71,129 +73,162 @@
                 <button id="btn-ssh-off" class="btn btn-ssh ssh-inactive" onclick="pub('SSH_STOP')">🔒 SSH OFF</button>
             </div>
 
-            <img id="cam-view" src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTqYR0cKwUU1nQSd6bea7BDWC9MCvPszQEPRQ&s" style="width:100%; border-radius:10px; display:block; margin-top:10px; border:2px solid #555;">
+            <img id="cam-view" src="" style="width:100%; border-radius:10px; display:none; margin-top:10px; border:2px solid #555;">
         </div>
 
-        <div class="card"><h3 style="color:#888;">TEMPERATURE (24H)</h3><div class="graph-container"><canvas id="tempChart"></canvas></div></div>
+        <div class="card">
+            <h3 style="color:#888;">TEMPERATURE (HISTORY)</h3>
+            <div class="graph-container"><canvas id="tempChart"></canvas></div>
+        </div>
         
-        <div class="card"><h3 style="color:#888;">USER ACTIONS</h3><div class="graph-container" style="height:200px;"><canvas id="actionChart"></canvas></div></div>
-        
-        <div class="card"><h3 style="color:#888;">SYSTEM HEALTH</h3><div class="graph-container" style="height:200px;"><canvas id="healthChart"></canvas></div></div>
+        <div class="card">
+            <h3 style="color:#888;">WIFI SIGNAL (%)</h3>
+            <div class="graph-container" style="height:200px;"><canvas id="signalChart"></canvas></div>
+        </div>
     </div>
 
 <script>
-    // --- 🔐 CONFIG ---
-    const CRED_USER = "miles";
-    const CRED_PASS = "miles";
+    // --- 🔐 CONFIGURATION ---
+    // Your Adafruit Username (from screenshot)
+    const AIO_USER = "Jonalli0124"; 
     
-    // --- 📊 THINGSPEAK KEYS ---
-    const TS_ID = "3242667"; 
-    const TS_KEY = "2TEMAWBTVQ7UCKJO"; // <--- PASTE READ KEY HERE!
+    // ⚠️ PASTE YOUR KEY BELOW between the quotes!
+    let AIO_KEY = "PASTE_YOUR_AIO_KEY_HERE"; 
 
-    // --- ☁️ HIVE CONFIG ---
-    const BROKER = "8a231350138548ea8166676276108f4e.s1.eu.hivemq.cloud"; 
-    const PORT = 8884; 
-    const USER = "miles";
-    const PASS = "Grit-2026!";
+    // --- ⚙️ SYSTEM CONSTANTS ---
+    const BROKER = "io.adafruit.com"; 
+    const PORT = 443; // Secure WebSockets
 
     // --- LOGIC ---
     function attemptLogin() {
-        if(document.getElementById("username-in").value === CRED_USER && document.getElementById("password-in").value === CRED_PASS) {
-            // Safety Check
-            if(TS_KEY.includes("YOUR_READ")) { alert("⚠️ STOP! \n\nYou forgot to paste your ThingSpeak READ KEY in the code."); }
+        // If user typed a key in the box, use that. Otherwise use the hardcoded one.
+        const inputKey = document.getElementById("password-in").value;
+        if(inputKey.length > 5) AIO_KEY = inputKey;
 
-            document.getElementById("login-screen").style.display = "none";
-            document.getElementById("app").style.filter = "none";
-            document.getElementById("app").style.opacity = "1";
-            document.getElementById("app").style.pointerEvents = "auto";
-            connectMQTT();
-            loadHistory(); 
-        } else { document.getElementById("err-msg").style.display = "block"; }
+        // Validation
+        if(!AIO_KEY.startsWith("aio_")) {
+            document.getElementById("err-msg").style.display = "block";
+            document.getElementById("err-msg").innerText = "Invalid Key format (must start with aio_)";
+            return;
+        }
+
+        // Unlock UI
+        document.getElementById("login-screen").style.display = "none";
+        document.getElementById("app").style.filter = "none";
+        document.getElementById("app").style.opacity = "1";
+        document.getElementById("app").style.pointerEvents = "auto";
+        
+        // Start Systems
+        connectMQTT();
+        loadHistory(); 
     }
 
+    // --- 📊 HISTORY GRAPH (REPLACES THINGSPEAK) ---
     async function loadHistory() {
         try {
-            const response = await fetch(`https://api.thingspeak.com/channels/${TS_ID}/feeds.json?api_key=${TS_KEY}&results=400`);
-            const data = await response.json();
-            const feeds = data.feeds;
-            const times = feeds.map(f => { let d = new Date(f.created_at); return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0'); });
+            console.log("Fetching History from Adafruit IO...");
             
-            const temps = feeds.map(f => f.field1 ? parseFloat(f.field1) : null);
-            const health = feeds.map(f => f.field3 ? Number(f.field3) : null); 
-            
-            // --- SPLIT ACTIONS ---
-            const onData = feeds.map(f => f.field2 == "10" ? 1 : 0);
-            const offData = feeds.map(f => f.field2 == "20" ? 1 : 0);
-            const photoData = feeds.map(f => f.field2 == "30" ? 1 : 0);
-            
-            // New: Split SSH into Open (Purple) and Close (Gray)
-            const sshOpenData = feeds.map(f => f.field2 == "40" ? 1 : 0);
-            const sshCloseData = feeds.map(f => f.field2 == "50" ? 1 : 0);
+            // Fetch Temp-1 Data
+            const tResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=50`, {headers: {'X-AIO-Key': AIO_KEY}});
+            const tData = await tResp.json();
+            tData.reverse(); // AIO gives newest first
 
-            new Chart(document.getElementById('tempChart'), { type: 'line', data: { labels: times, datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', tension: 0.4, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, ticks: { maxTicksLimit: 6, color: '#888' }, grid: {display:false} }, y: { grid: {color: '#444'} } }, plugins: { legend: {display: false} } } });
-            
-            // UPDATED ACTION CHART WITH SSH SPLIT
-            new Chart(document.getElementById('actionChart'), { 
+            // Fetch Signal Data
+            const sResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/signal/data?limit=50`, {headers: {'X-AIO-Key': AIO_KEY}});
+            const sData = await sResp.json();
+            sData.reverse();
+
+            // Prepare Chart Data
+            const times = tData.map(f => { 
+                let d = new Date(f.created_at); 
+                return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0'); 
+            });
+            const temps = tData.map(f => parseFloat(f.value));
+            const signals = sData.map(f => parseFloat(f.value));
+
+            // Render Temp Chart
+            new Chart(document.getElementById('tempChart'), { 
+                type: 'line', 
+                data: { labels: times, datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4, pointRadius: 1 }] }, 
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, grid: {display:false}, ticks: {color:'#888'} }, y: { grid: {color: '#444'}, ticks: {color:'#888'} } }, plugins: { legend: {display: false} } } 
+            });
+
+            // Render Signal Chart
+            new Chart(document.getElementById('signalChart'), { 
                 type: 'bar', 
-                data: { 
-                    labels: times, 
-                    datasets: [
-                        { label: 'ON', data: onData, backgroundColor: '#28a745' }, 
-                        { label: 'OFF', data: offData, backgroundColor: '#dc3545' }, 
-                        { label: 'PHOTO', data: photoData, backgroundColor: '#17a2b8' }, 
-                        { label: 'SSH OPEN', data: sshOpenData, backgroundColor: '#d63384' }, // Purple
-                        { label: 'SSH CLOSE', data: sshCloseData, backgroundColor: '#343a40' } // Dark Gray
-                    ] 
-                }, 
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: {position: 'bottom', labels:{color:'white'}} }, scales: { x: { stacked: true, display: true, ticks: { maxTicksLimit: 6, color: '#888' }, grid: {display:false} }, y: { stacked: true, display: false } } } 
+                data: { labels: times, datasets: [{ label: 'Signal %', data: signals, backgroundColor: '#17a2b8' }] }, 
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: {color: '#444'}, min: 0, max: 100 } }, plugins: { legend: {display: false} } } 
             });
             
-            new Chart(document.getElementById('healthChart'), { type: 'bar', data: { labels: times, datasets: [{ label: 'Pulse', data: health, backgroundColor: '#ffc107', barPercentage: 1.0, categoryPercentage: 1.0 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, ticks: { maxTicksLimit: 6, color: '#888' }, grid: {display:false} }, y: { display: false } }, plugins: { legend: {display: false} } } });
         } catch(e) { console.error("Graph Error:", e); }
     }
 
-    client = new Paho.MQTT.Client(BROKER, PORT, "web_" + parseInt(Math.random()*1000));
+    // --- 📡 LIVE CONNECTION (REPLACES HIVEMQ) ---
+    client = new Paho.MQTT.Client(BROKER, PORT, "web_" + parseInt(Math.random()*10000));
+
     function connectMQTT() {
-        client.connect({ useSSL: true, userName: USER, password: PASS, onSuccess: () => {
-            client.subscribe("miles/heater/+");
-            pub("GET_STATUS");
-        }});
-    }
-    client.onMessageArrived = (msg) => {
-        if(msg.destinationName.includes("status")) {
-            const s = document.getElementById("status-display");
-            s.innerText = msg.payloadString;
-            s.style.color = (msg.payloadString === "ON") ? "#28a745" : "#dc3545";
-        } else if(msg.destinationName.includes("data")) {
-            try {
-                const d = JSON.parse(msg.payloadString);
-                if(d.temp) document.getElementById("disp-temp").innerText = d.temp;
-                if(d.signal) document.getElementById("disp-signal").innerText = d.signal + "%";
-                if(d.time) document.getElementById("disp-time").innerText = d.time;
-                if(d.ip) document.getElementById("disp-ip").innerText = d.ip;
+        client.connect({ 
+            useSSL: true, 
+            userName: AIO_USER, 
+            password: AIO_KEY, // AIO uses the Key as the password
+            onSuccess: () => {
+                console.log("✅ Connected to Adafruit IO MQTT");
+                // Subscribe to feeds
+                client.subscribe(`${AIO_USER}/feeds/heater`);
+                client.subscribe(`${AIO_USER}/feeds/temp-1`);
+                client.subscribe(`${AIO_USER}/feeds/signal`);
+                client.subscribe(`${AIO_USER}/feeds/camera`); // Assuming you have a feed named 'camera'
                 
-                const btnOn = document.getElementById("btn-ssh-on");
-                const btnOff = document.getElementById("btn-ssh-off");
-                if(d.ssh === "ON") {
-                    btnOn.className = "btn btn-ssh ssh-active"; 
-                    btnOn.innerText = "🔓 SSH ONLINE";
-                    btnOff.className = "btn btn-ssh ssh-inactive";
-                } else {
-                    btnOn.className = "btn btn-ssh ssh-inactive"; 
-                    btnOn.innerText = "🔓 SSH ON";
-                    btnOff.className = "btn btn-ssh ssh-inactive"; 
-                }
-            } catch(e){}
-        } else if(msg.destinationName.includes("image")) {
+                // Ask for current status
+                pub('GET_STATUS');
+            },
+            onFailure: (e) => { 
+                console.log("❌ Connection Failed:", e); 
+                alert("Connection failed. Check console for details.");
+            }
+        });
+    }
+
+    client.onMessageArrived = (msg) => {
+        const topic = msg.destinationName;
+        const payload = msg.payloadString;
+        console.log(`Msg [${topic}]: ${payload}`);
+        
+        // Update Last Updated Time
+        const now = new Date();
+        document.getElementById("disp-time").innerText = now.getHours() + ":" + String(now.getMinutes()).padStart(2,'0') + ":" + String(now.getSeconds()).padStart(2,'0');
+
+        // ROUTING
+        if(topic.endsWith("temp-1")) {
+            document.getElementById("disp-temp").innerText = payload;
+        } 
+        else if(topic.endsWith("signal")) {
+            document.getElementById("disp-signal").innerText = payload + "%";
+        }
+        else if(topic.endsWith("heater")) {
+            const s = document.getElementById("status-display");
+            s.innerText = payload;
+            
+            // Color Logic
+            if(payload === "ON") s.style.color = "#28a745";
+            else if(payload === "OFF") s.style.color = "#dc3545";
+            else s.style.color = "#ffc107";
+        }
+        else if(topic.endsWith("camera")) {
+            // Assumes payload is base64 string or url. 
+            // If sending raw binary bytes via python, this might need tweaking.
             const img = document.getElementById("cam-view");
-            img.src = URL.createObjectURL(new Blob([msg.payloadBytes], {type: "image/jpeg"}));
+            img.src = "data:image/jpeg;base64," + payload; 
             img.style.display = "block";
         }
     };
+
     function pub(cmd) {
+        // Send command to 'heater' feed
         message = new Paho.MQTT.Message(cmd);
-        message.destinationName = "miles/heater/command";
+        message.destinationName = `${AIO_USER}/feeds/heater`;
         client.send(message);
+        console.log("Sent:", cmd);
     }
 </script>
 </body>
