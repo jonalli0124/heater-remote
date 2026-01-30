@@ -179,7 +179,13 @@
         const box = document.getElementById("cam-box");
         const ts = document.getElementById("cam-ts");
         
-        img.src = "data:image/jpeg;base64," + base64;
+        // Clean up string in case it came with metadata
+        let cleanBase64 = base64;
+        if (base64.startsWith('{')) {
+            try { cleanBase64 = JSON.parse(base64).value; } catch(e) {}
+        }
+
+        img.src = "data:image/jpeg;base64," + cleanBase64;
         box.style.display = "block";
         ts.innerText = "CAPTURED: " + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     }
@@ -193,13 +199,21 @@
     }
 
     client.onMessageArrived = (msg) => {
-        const payload = msg.payloadString;
+        let payload = msg.payloadString;
         const topic = msg.destinationName;
         const now = new Date();
         const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
         const feedName = topic.split('/').pop();
 
-        if (payload.length > 1000) {
+        // Handle JSON metadata from Adafruit if it exists
+        if (payload.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(payload);
+                if (parsed.value) payload = parsed.value;
+            } catch (e) {}
+        }
+
+        if (feedName === "camera" && payload.length > 500) {
             renderImage(payload, now);
             addLog("📸 PHOTO: New capture received.", "#17a2b8");
             return;
