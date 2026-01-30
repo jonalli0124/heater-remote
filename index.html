@@ -45,11 +45,11 @@
 
     <div id="login-screen">
         <div class="login-box">
-            <h2>🔒 Security</h2>
-            <p style="color:#666; font-size:12px;">Enter Adafruit IO Key (or hardcode it in source)</p>
-            <input type="password" id="password-in" class="login-input" placeholder="IO Key (aio_...)">
-            <button class="login-btn" onclick="attemptLogin()">CONNECT</button>
-            <div id="err-msg" style="color:red; display:none; margin-top:10px;">Missing Key</div>
+            <h2>🔒 Restricted</h2>
+            <input type="text" id="username-in" class="login-input" placeholder="User" autocapitalize="none">
+            <input type="password" id="password-in" class="login-input" placeholder="Pass">
+            <button class="login-btn" onclick="attemptLogin()">UNLOCK</button>
+            <div id="err-msg" style="color:red; display:none; margin-top:10px;">Access Denied</div>
         </div>
     </div>
 
@@ -89,11 +89,14 @@
 
 <script>
     // --- 🔐 CONFIGURATION ---
+    const CRED_USER = "miles";
+    const CRED_PASS = "miles";
+
     // Your Adafruit Username (from screenshot)
     const AIO_USER = "Jonalli0124"; 
     
     // ⚠️ PASTE YOUR KEY BELOW between the quotes!
-    let AIO_KEY = "PASTE_YOUR_AIO_KEY_HERE"; 
+    const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d"; 
 
     // --- ⚙️ SYSTEM CONSTANTS ---
     const BROKER = "io.adafruit.com"; 
@@ -101,26 +104,29 @@
 
     // --- LOGIC ---
     function attemptLogin() {
-        // If user typed a key in the box, use that. Otherwise use the hardcoded one.
-        const inputKey = document.getElementById("password-in").value;
-        if(inputKey.length > 5) AIO_KEY = inputKey;
+        const u = document.getElementById("username-in").value;
+        const p = document.getElementById("password-in").value;
 
-        // Validation
-        if(!AIO_KEY.startsWith("aio_")) {
+        if(u === CRED_USER && p === CRED_PASS) {
+            
+            // Safety Check
+            if(AIO_KEY.includes("PASTE_YOUR")) { 
+                alert("⚠️ STOP! \n\nYou forgot to paste your Adafruit IO KEY in the code (Line 99)."); 
+                return;
+            }
+
+            // Unlock UI
+            document.getElementById("login-screen").style.display = "none";
+            document.getElementById("app").style.filter = "none";
+            document.getElementById("app").style.opacity = "1";
+            document.getElementById("app").style.pointerEvents = "auto";
+            
+            // Start Systems
+            connectMQTT();
+            loadHistory(); 
+        } else {
             document.getElementById("err-msg").style.display = "block";
-            document.getElementById("err-msg").innerText = "Invalid Key format (must start with aio_)";
-            return;
         }
-
-        // Unlock UI
-        document.getElementById("login-screen").style.display = "none";
-        document.getElementById("app").style.filter = "none";
-        document.getElementById("app").style.opacity = "1";
-        document.getElementById("app").style.pointerEvents = "auto";
-        
-        // Start Systems
-        connectMQTT();
-        loadHistory(); 
     }
 
     // --- 📊 HISTORY GRAPH (REPLACES THINGSPEAK) ---
@@ -163,7 +169,7 @@
         } catch(e) { console.error("Graph Error:", e); }
     }
 
-    // --- 📡 LIVE CONNECTION (REPLACES HIVEMQ) ---
+    // --- 📡 LIVE CONNECTION ---
     client = new Paho.MQTT.Client(BROKER, PORT, "web_" + parseInt(Math.random()*10000));
 
     function connectMQTT() {
@@ -177,7 +183,7 @@
                 client.subscribe(`${AIO_USER}/feeds/heater`);
                 client.subscribe(`${AIO_USER}/feeds/temp-1`);
                 client.subscribe(`${AIO_USER}/feeds/signal`);
-                client.subscribe(`${AIO_USER}/feeds/camera`); // Assuming you have a feed named 'camera'
+                client.subscribe(`${AIO_USER}/feeds/camera`); 
                 
                 // Ask for current status
                 pub('GET_STATUS');
@@ -215,8 +221,7 @@
             else s.style.color = "#ffc107";
         }
         else if(topic.endsWith("camera")) {
-            // Assumes payload is base64 string or url. 
-            // If sending raw binary bytes via python, this might need tweaking.
+            // Assumes payload is base64 string
             const img = document.getElementById("cam-view");
             img.src = "data:image/jpeg;base64," + payload; 
             img.style.display = "block";
