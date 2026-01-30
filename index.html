@@ -87,161 +87,102 @@
         </div>
     </div>
 <script>
-    // --- 🔐 CONFIGURATION ---
-    const CRED_USER = "miles";
-    const CRED_PASS = "miles";
     const AIO_USER = "Jonalli0124"; 
     const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d"; 
-
-    // --- ⚙️ SYSTEM CONSTANTS ---
-    const BROKER = "io.adafruit.com"; 
-    const PORT = 443; 
-
-    // Global Chart variables
     let tempChart;
-    let signalChart;
-
-    function attemptLogin() {
-        const u = document.getElementById("username-in").value;
-        const p = document.getElementById("password-in").value;
-
-        if(u === CRED_USER && p === CRED_PASS) {
-            document.getElementById("login-screen").style.display = "none";
-            document.getElementById("app").style.filter = "none";
-            document.getElementById("app").style.opacity = "1";
-            document.getElementById("app").style.pointerEvents = "auto";
-            
-            connectMQTT();
-            loadHistory(); 
-        } else {
-            document.getElementById("err-msg").style.display = "block";
-        }
-    }
 
     async function loadHistory() {
         try {
             const now = Date.now();
-            const tResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=50&_=${now}`, {headers: {'X-AIO-Key': AIO_KEY}});
-            const tData = await tResp.json();
-            tData.reverse(); 
+            // Fetch 6 hours (360 points) for both feeds
+            const [t1Resp, t2Resp, sResp] = await Promise.all([
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=360`, {headers: {'X-AIO-Key': AIO_KEY}}),
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=360`, {headers: {'X-AIO-Key': AIO_KEY}}),
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/tunnel/data?limit=1`, {headers: {'X-AIO-Key': AIO_KEY}})
+            ]);
 
-            const sResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/signal/data?limit=50&_=${now}`, {headers: {'X-AIO-Key': AIO_KEY}});
-            const sData = await sResp.json();
-            sData.reverse();
+            const t1Data = (await t1Resp.json()).reverse();
+            const t2Data = (await t2Resp.json()).reverse();
+            const sshData = await sResp.json();
 
-            const times = tData.map(f => { 
-                let d = new Date(f.created_at); 
-                return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0'); 
-            });
-            const temps = tData.map(f => parseFloat(f.value));
-            const signals = sData.map(f => parseFloat(f.value));
+            if(sshData.length > 0) updateSSHUI(sshData[0].value);
 
-            // Create Temperature Chart
-            tempChart = new Chart(document.getElementById('tempChart'), { 
-                type: 'line', 
-                data: { labels: times, datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4, pointRadius: 1 }] }, 
-                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, grid: {display:false}, ticks: {color:'#888'} }, y: { grid: {color: '#444'}, ticks: {color:'#888'} } }, plugins: { legend: {display: false} } } 
+            const labels = t1Data.map(f => {
+                let d = new Date(f.created_at);
+                return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
             });
 
-            // Create Signal Chart
-            signalChart = new Chart(document.getElementById('signalChart'), { 
-                type: 'bar', 
-                data: { labels: times, datasets: [{ label: 'Signal %', data: signals, backgroundColor: '#17a2b8' }] }, 
-                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: {color: '#444'}, min: 0, max: 100 } }, plugins: { legend: {display: false} } } 
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            tempChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'AC (Temp 1)',
+                            data: t1Data.map(f => f.value),
+                            borderColor: '#007bff', // Blue for AC
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Heater (Temp 2)',
+                            data: t2Data.map(f => f.value),
+                            borderColor: '#ff4500', // Orange/Red for Heater
+                            backgroundColor: 'rgba(255, 69, 0, 0.1)',
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: true, labels: { color: '#888' } } },
+                    scales: { 
+                        x: { ticks: { autoSkip: true, maxTicksLimit: 6, color: '#888' } },
+                        y: { ticks: { color: '#888' }, grid: { color: '#333' } }
+                    }
+                }
             });
-            
-        } catch(e) { console.error("Graph Error:", e); }
-    }
-
-    // --- 📡 LIVE CONNECTION ---
-    client = new Paho.MQTT.Client(BROKER, PORT, "web_" + parseInt(Math.random()*10000));
-
-    function connectMQTT() {
-        client.connect({ 
-            useSSL: true, 
-            userName: AIO_USER, 
-            password: AIO_KEY, 
-            onSuccess: () => {
-                console.log("✅ Connected to Adafruit IO MQTT");
-                client.subscribe(`${AIO_USER}/feeds/relay-heater`);
-                client.subscribe(`${AIO_USER}/feeds/relay-ac`);
-                client.subscribe(`${AIO_USER}/feeds/temp-1`);
-                client.subscribe(`${AIO_USER}/feeds/signal`);
-                client.subscribe(`${AIO_USER}/feeds/camera`); 
-                client.subscribe(`${AIO_USER}/feeds/tunnel`);
-            },
-            onFailure: (e) => { console.log("❌ Connection Failed:", e); }
-        });
+        } catch(e) { console.error("History Load Error:", e); }
     }
 
     client.onMessageArrived = (msg) => {
-        const topic = msg.destinationName;
         const payload = msg.payloadString;
-        const now = new Date();
-        const timeStr = now.getHours() + ":" + String(now.getMinutes()).padStart(2,'0');
-
-        document.getElementById("disp-time").innerText = timeStr + ":" + String(now.getSeconds()).padStart(2,'0');
+        const topic = msg.destinationName;
+        const timeStr = new Date().getHours() + ":" + String(new Date().getMinutes()).padStart(2,'0');
 
         if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload;
-            // LIVE UPDATE CHART
-            if(tempChart) {
-                tempChart.data.labels.push(timeStr);
-                tempChart.data.datasets[0].data.push(parseFloat(payload));
-                if(tempChart.data.labels.length > 50) {
-                    tempChart.data.labels.shift();
-                    tempChart.data.datasets[0].data.shift();
-                }
-                tempChart.update();
-            }
-        } 
-        else if(topic.endsWith("signal")) {
-            document.getElementById("disp-signal").innerText = payload + "%";
-            // LIVE UPDATE CHART
-            if(signalChart) {
-                signalChart.data.labels.push(timeStr);
-                signalChart.data.datasets[0].data.push(parseFloat(payload));
-                if(signalChart.data.labels.length > 50) {
-                    signalChart.data.labels.shift();
-                    signalChart.data.datasets[0].data.shift();
-                }
-                signalChart.update();
-            }
+            updateLiveChart(0, payload, timeStr);
         }
-        else if(topic.endsWith("relay-heater")) {
-            const s = document.getElementById("status-display");
-            s.innerText = (payload === "ON") ? "HEATER ACTIVE" : "AC ACTIVE";
-            s.style.color = (payload === "ON") ? "#28a745" : "#dc3545";
+        if(topic.endsWith("temp-2")) {
+            updateLiveChart(1, payload, timeStr);
         }
-        else if(topic.endsWith("camera")) {
-            const img = document.getElementById("cam-view");
-            img.src = "data:image/jpeg;base64," + payload; 
-            img.style.display = "block";
-        }
-        else if(topic.endsWith("tunnel")) {
-            const btnOn = document.getElementById("btn-ssh-on");
-            const btnOff = document.getElementById("btn-ssh-off");
-            if(payload === "ON") {
-                btnOn.className = "btn btn-ssh ssh-active";
-                btnOff.className = "btn btn-ssh ssh-inactive";
-            } else {
-                btnOn.className = "btn btn-ssh ssh-inactive";
-                btnOff.className = "btn btn-ssh ssh-active";
-            }
-        }
+        if(topic.endsWith("tunnel")) updateSSHUI(payload);
+        if(topic.endsWith("relay-heater")) addLog("HEATER " + payload);
+        if(topic.endsWith("signal")) document.getElementById("disp-signal").innerText = payload + "%";
     };
 
-    function pub(cmd) {
-        let targetFeed = (cmd === "SNAP") ? "camera" : "relay-heater";
-        let message = new Paho.MQTT.Message(cmd);
-        message.destinationName = `${AIO_USER}/feeds/${targetFeed}`;
-        client.send(message);
-    }
-
-    function pub_tunnel(cmd) {
-        let message = new Paho.MQTT.Message(cmd);
-        message.destinationName = `${AIO_USER}/feeds/tunnel`;
-        client.send(message);
+    function updateLiveChart(datasetIndex, value, timeStr) {
+        if(!tempChart) return;
+        const ds = tempChart.data.datasets[datasetIndex];
+        ds.data.push(value);
+        
+        // Only shift the labels once (when the first dataset updates)
+        if(datasetIndex === 0) {
+            tempChart.data.labels.push(timeStr);
+            if(tempChart.data.labels.length > 360) {
+                tempChart.data.labels.shift();
+            }
+        }
+        
+        if(ds.data.length > 360) ds.data.shift();
+        tempChart.update('none'); // 'none' for better performance
     }
 </script>
 
