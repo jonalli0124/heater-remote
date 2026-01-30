@@ -32,7 +32,7 @@
         .chart-wrapper { width: 100%; height: 250px; margin-top: 10px; }
         
         /* Camera Container & Overlay */
-        .cam-container { position: relative; width: 100%; display: none; margin-bottom: 15px; }
+        .cam-container { position: relative; width: 100%; display: none; margin-top: 5px; }
         #cam-view { width: 100%; border-radius: 12px; border: 2px solid #444; display: block; animation: fadeIn 0.5s; }
         #cam-ts { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-family: monospace; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -53,11 +53,6 @@
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
             
-            <div class="cam-container" id="cam-box">
-                <img id="cam-view" src="">
-                <div id="cam-ts">LAST CAPTURE: --:--</div>
-            </div>
-
             <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">BOOTING...</div>
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
@@ -77,6 +72,14 @@
             <div style="margin-top:10px;">
                 <button id="btn-ssh-on" class="btn btn-ssh" onclick="pub_tunnel('ON')">🔓 SSH ON</button>
                 <button id="btn-ssh-off" class="btn btn-ssh" onclick="pub_tunnel('OFF')">🔒 SSH OFF</button>
+            </div>
+        </div>
+
+        <div class="card" id="cam-card" style="display:none; padding:10px;">
+             <h3 style="color:#888; margin:5px 0 10px 0; font-size: 14px;">LIVE CAMERA FEED</h3>
+             <div class="cam-container" id="cam-box" style="display:block;">
+                <img id="cam-view" src="">
+                <div id="cam-ts">LAST CAPTURE: --:--</div>
             </div>
         </div>
 
@@ -176,14 +179,14 @@
 
     function renderImage(base64, dateObj) {
         const img = document.getElementById("cam-view");
-        const box = document.getElementById("cam-box");
+        const card = document.getElementById("cam-card");
         const ts = document.getElementById("cam-ts");
         
         // Clean up string: Strip quotes and trim whitespace
         let cleanBase64 = base64.replace(/^"|"$/g, '').trim();
 
         img.src = "data:image/jpeg;base64," + cleanBase64;
-        box.style.display = "block";
+        card.style.display = "block"; // Show the whole card when photo arrives
         ts.innerText = "CAPTURED: " + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     }
 
@@ -202,17 +205,14 @@
         const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
         const feedName = topic.split('/').pop();
 
-        // LIVE CLEANUP: Strip quotes that Adafruit often wraps around live strings
         let cleanPayload = payload.replace(/^"|"$/g, '').trim();
 
-        // 1. Image Check (Look for JPEG Base64 header /9j/ or large size)
         if (feedName === "camera" && (cleanPayload.startsWith('/9j/') || cleanPayload.length > 500)) {
             renderImage(cleanPayload, now);
             addLog("📸 PHOTO: Live capture received.", "#17a2b8");
             return;
         }
 
-        // 2. Regular Heartbeat/Status Logic
         addLog(`LIVE: ${feedName.toUpperCase()} -> ${cleanPayload}`, "#888");
         document.getElementById("disp-time").innerText = now.toLocaleTimeString();
 
