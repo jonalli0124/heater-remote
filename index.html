@@ -1,33 +1,51 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Miles Control | Historical Graph</title>
+    <title>Miles Control Center</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: sans-serif; background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
-        .card { background: #2d2d2d; padding: 15px; border-radius: 15px; max-width: 600px; margin: 10px auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        body { font-family: -apple-system, sans-serif; background: #121212; color: white; text-align: center; margin: 0; padding: 15px; }
+        .card { background: #1e1e1e; padding: 15px; border-radius: 15px; max-width: 600px; margin: 0 auto 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
-        .stat-box { background: #3a3a3a; padding: 10px; border-radius: 10px; }
-        .stat-val { font-size: 22px; font-weight: bold; color: #fff; }
-        .stat-lbl { font-size: 10px; color: #888; text-transform: uppercase; }
+        .stat-box { background: #2a2a2a; padding: 12px; border-radius: 10px; text-align: left; }
+        .stat-val { font-size: 20px; font-weight: bold; color: #fff; margin-top: 4px; }
+        .stat-lbl { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        .btn { display: block; width: 100%; margin: 8px 0; padding: 14px; font-size: 15px; font-weight: bold; border-radius: 10px; border: none; color: white; cursor: pointer; transition: 0.2s; }
+        .btn-heat { background: #ff4500; }
+        .btn-ac { background: #007bff; }
+        .btn-ssh { background: #444; }
+        .btn:active { transform: scale(0.98); opacity: 0.8; }
+        #command-log { height: 100px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 8px; font-size: 11px; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h3 style="color:#888;">REAL-TIME STATUS</h3>
+        <h3 style="color:#888; margin-top:0;">SYSTEM STATUS</h3>
         <div class="grid">
             <div class="stat-box"><div class="stat-lbl">PI TEMP (T1)</div><div class="stat-val" id="disp-temp">--°F</div></div>
-            <div class="stat-box"><div class="stat-lbl">SIGNAL</div><div class="stat-val" id="disp-signal">--%</div></div>
-            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:14px;">--</div></div>
-            <div class="stat-box"><div class="stat-lbl">UPDATED</div><div class="stat-val" id="disp-time" style="font-size:14px;">--</div></div>
+            <div class="stat-box"><div class="stat-lbl">CELL SIGNAL</div><div class="stat-val" id="disp-signal">--%</div></div>
+            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:13px;">--</div></div>
+            <div class="stat-box"><div class="stat-lbl">LAST PACKET</div><div class="stat-val" id="disp-time" style="font-size:13px;">--</div></div>
         </div>
+        <button class="btn btn-heat" onclick="pub('relay-heater', 'ON')">ACTIVATE HEATER</button>
+        <button class="btn btn-ac" onclick="pub('relay-heater', 'OFF')">ACTIVATE AC (HEATER OFF)</button>
     </div>
 
     <div class="card">
-        <h3 style="color:#888;">LAST HOUR HISTORY</h3>
-        <canvas id="tempChart" style="height:250px;"></canvas>
+        <h3 style="color:#888; margin-top:0;">TEMPERATURE HISTORY (1H)</h3>
+        <canvas id="tempChart" style="height:200px;"></canvas>
+    </div>
+
+    <div class="card">
+        <h3 style="color:#888; margin-top:0;">SERVICE CONTROLS</h3>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-ssh" onclick="pub('tunnel', 'ON')">START SSH</button>
+            <button class="btn btn-ssh" style="background:#222;" onclick="pub('tunnel', 'OFF')">STOP SSH</button>
+        </div>
+        <div id="command-log">> System initialized...</div>
     </div>
 
 <script>
@@ -35,7 +53,7 @@
     const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d";
     const FEEDS = ["temp-1", "temp-2", "temp-3"];
 
-    // 1. Setup Chart
+    // 1. Initialize Chart
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
         type: 'line',
@@ -43,28 +61,25 @@
             labels: [],
             datasets: [
                 { label: 'Pi CPU', borderColor: '#ff4500', data: [], tension: 0.3, pointRadius: 0 },
-                { label: 'Probe 2', borderColor: '#007bff', data: [], tension: 0.3, pointRadius: 0 },
-                { label: 'Probe 3', borderColor: '#28a745', data: [], tension: 0.3, pointRadius: 0 }
+                { label: 'T2', borderColor: '#007bff', data: [], tension: 0.3, pointRadius: 0 },
+                { label: 'T3', borderColor: '#28a745', data: [], tension: 0.3, pointRadius: 0 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: { x: { display: false }, y: { grid: { color: '#444' }, ticks: { color: '#888' } } },
-            plugins: { legend: { labels: { color: '#aaa' } } }
+            scales: { x: { display: false }, y: { grid: { color: '#333' }, ticks: { color: '#666' } } },
+            plugins: { legend: { labels: { color: '#888', boxWidth: 10 } } }
         }
     });
 
-    // 2. Fetch Historical Data (Last 1 Hour)
+    // 2. Fetch History from Adafruit API
     async function fetchHistory() {
-        console.log("Fetching last hour of data...");
+        addLog("Syncing historical data...");
         for (let i = 0; i < FEEDS.length; i++) {
-            // Using Adafruit IO API to get last 60 mins
             const url = `https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${FEEDS[i]}/data?hours=1`;
             const resp = await fetch(url, { headers: {'X-AIO-Key': AIO_KEY} });
             const data = await resp.json();
-            
-            // Reverse so oldest data is first for the graph
             const points = data.reverse();
             points.forEach(p => {
                 tempChart.data.datasets[i].data.push(parseFloat(p.value));
@@ -77,12 +92,11 @@
         tempChart.update();
     }
 
-    // 3. Setup MQTT for Real-time
+    // 3. MQTT Setup
     const client = new Paho.MQTT.Client("io.adafruit.com", 443, "web_" + Math.random());
-    
     client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
         client.subscribe(AIO_USER + "/feeds/#");
-        fetchHistory(); // Load history once connected
+        fetchHistory();
     }});
 
     client.onMessageArrived = (msg) => {
@@ -104,13 +118,23 @@
     function pushToGraph(idx, val, time) {
         tempChart.data.datasets[idx].data.push(parseFloat(val));
         if(idx === 0) tempChart.data.labels.push(time);
-        
-        // Maintain 60-point window (approx 1 hour)
         if(tempChart.data.labels.length > 60) {
             tempChart.data.labels.shift();
             tempChart.data.datasets.forEach(d => d.data.shift());
         }
         tempChart.update('none');
+    }
+
+    function addLog(msg) {
+        const log = document.getElementById("command-log");
+        log.innerHTML = `<div>> ${msg}</div>` + log.innerHTML;
+    }
+
+    function pub(feed, cmd) {
+        let m = new Paho.MQTT.Message(cmd);
+        m.destinationName = `${AIO_USER}/feeds/${feed}`;
+        client.send(m);
+        addLog(`Sent ${cmd} to ${feed}`);
     }
 </script>
 </body>
