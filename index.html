@@ -86,18 +86,20 @@
             <div class="graph-container" style="height:200px;"><canvas id="signalChart"></canvas></div>
         </div>
     </div>
-
 <script>
     // --- 🔐 CONFIGURATION ---
     const CRED_USER = "miles";
     const CRED_PASS = "miles";
-
     const AIO_USER = "Jonalli0124"; 
     const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d"; 
 
     // --- ⚙️ SYSTEM CONSTANTS ---
     const BROKER = "io.adafruit.com"; 
     const PORT = 443; 
+
+    // Global Chart variables
+    let tempChart;
+    let signalChart;
 
     function attemptLogin() {
         const u = document.getElementById("username-in").value;
@@ -118,11 +120,12 @@
 
     async function loadHistory() {
         try {
-            const tResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=50`, {headers: {'X-AIO-Key': AIO_KEY}});
+            const now = Date.now();
+            const tResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=50&_=${now}`, {headers: {'X-AIO-Key': AIO_KEY}});
             const tData = await tResp.json();
             tData.reverse(); 
 
-            const sResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/signal/data?limit=50`, {headers: {'X-AIO-Key': AIO_KEY}});
+            const sResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/signal/data?limit=50&_=${now}`, {headers: {'X-AIO-Key': AIO_KEY}});
             const sData = await sResp.json();
             sData.reverse();
 
@@ -133,13 +136,15 @@
             const temps = tData.map(f => parseFloat(f.value));
             const signals = sData.map(f => parseFloat(f.value));
 
-            new Chart(document.getElementById('tempChart'), { 
+            // Create Temperature Chart
+            tempChart = new Chart(document.getElementById('tempChart'), { 
                 type: 'line', 
                 data: { labels: times, datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4, pointRadius: 1 }] }, 
                 options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, grid: {display:false}, ticks: {color:'#888'} }, y: { grid: {color: '#444'}, ticks: {color:'#888'} } }, plugins: { legend: {display: false} } } 
             });
 
-            new Chart(document.getElementById('signalChart'), { 
+            // Create Signal Chart
+            signalChart = new Chart(document.getElementById('signalChart'), { 
                 type: 'bar', 
                 data: { labels: times, datasets: [{ label: 'Signal %', data: signals, backgroundColor: '#17a2b8' }] }, 
                 options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: {color: '#444'}, min: 0, max: 100 } }, plugins: { legend: {display: false} } } 
@@ -158,7 +163,6 @@
             password: AIO_KEY, 
             onSuccess: () => {
                 console.log("✅ Connected to Adafruit IO MQTT");
-                // Subscribed to corrected feed keys
                 client.subscribe(`${AIO_USER}/feeds/relay-heater`);
                 client.subscribe(`${AIO_USER}/feeds/relay-ac`);
                 client.subscribe(`${AIO_USER}/feeds/temp-1`);
@@ -173,15 +177,36 @@
     client.onMessageArrived = (msg) => {
         const topic = msg.destinationName;
         const payload = msg.payloadString;
-        
         const now = new Date();
-        document.getElementById("disp-time").innerText = now.getHours() + ":" + String(now.getMinutes()).padStart(2,'0') + ":" + String(now.getSeconds()).padStart(2,'0');
+        const timeStr = now.getHours() + ":" + String(now.getMinutes()).padStart(2,'0');
+
+        document.getElementById("disp-time").innerText = timeStr + ":" + String(now.getSeconds()).padStart(2,'0');
 
         if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload;
+            // LIVE UPDATE CHART
+            if(tempChart) {
+                tempChart.data.labels.push(timeStr);
+                tempChart.data.datasets[0].data.push(parseFloat(payload));
+                if(tempChart.data.labels.length > 50) {
+                    tempChart.data.labels.shift();
+                    tempChart.data.datasets[0].data.shift();
+                }
+                tempChart.update();
+            }
         } 
         else if(topic.endsWith("signal")) {
             document.getElementById("disp-signal").innerText = payload + "%";
+            // LIVE UPDATE CHART
+            if(signalChart) {
+                signalChart.data.labels.push(timeStr);
+                signalChart.data.datasets[0].data.push(parseFloat(payload));
+                if(signalChart.data.labels.length > 50) {
+                    signalChart.data.labels.shift();
+                    signalChart.data.datasets[0].data.shift();
+                }
+                signalChart.update();
+            }
         }
         else if(topic.endsWith("relay-heater")) {
             const s = document.getElementById("status-display");
@@ -207,21 +232,18 @@
     };
 
     function pub(cmd) {
-        // Updated to publish to relay-heater to match Python code
-        let targetFeed = "relay-heater";
-        if (cmd === "SNAP") targetFeed = "camera";
-        
-        message = new Paho.MQTT.Message(cmd);
+        let targetFeed = (cmd === "SNAP") ? "camera" : "relay-heater";
+        let message = new Paho.MQTT.Message(cmd);
         message.destinationName = `${AIO_USER}/feeds/${targetFeed}`;
         client.send(message);
-        console.log("Sent:", cmd, "to", targetFeed);
     }
 
     function pub_tunnel(cmd) {
-        message = new Paho.MQTT.Message(cmd);
+        let message = new Paho.MQTT.Message(cmd);
         message.destinationName = `${AIO_USER}/feeds/tunnel`;
         client.send(message);
     }
 </script>
+
 </body>
 </html>
