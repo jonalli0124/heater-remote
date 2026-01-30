@@ -1,138 +1,116 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Miles Heater | Control Center</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Miles Control | Historical Graph</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; background: #1a1a1a; color: white; padding: 20px; margin: 0; }
-        .card { background: #2d2d2d; padding: 15px; border-radius: 20px; max-width: 600px; margin: 0 auto 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-        .stat-box { background: #3a3a3a; padding: 10px; border-radius: 10px; text-align: left; }
-        .stat-val { font-size: 18px; font-weight: bold; color: #fff; margin-top: 5px; }
-        .stat-lbl { font-size: 11px; color: #aaa; text-transform: uppercase; }
-        .indicator { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #444; }
-        .active-ac { background: #007bff; box-shadow: 0 0 10px #007bff; }
-        .active-heat { background: #ff4500; box-shadow: 0 0 10px #ff4500; }
-        .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; cursor: pointer; }
-        .btn-on { background: linear-gradient(135deg, #28a745, #218838); }
-        .btn-off { background: linear-gradient(135deg, #dc3545, #c82333); }
-        .btn-blue { background: #17a2b8; }
-        #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; }
-        canvas { width: 100% !important; height: 150px !important; margin-top: 10px; }
+        body { font-family: sans-serif; background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
+        .card { background: #2d2d2d; padding: 15px; border-radius: 15px; max-width: 600px; margin: 10px auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-box { background: #3a3a3a; padding: 10px; border-radius: 10px; }
+        .stat-val { font-size: 22px; font-weight: bold; color: #fff; }
+        .stat-lbl { font-size: 10px; color: #888; text-transform: uppercase; }
     </style>
 </head>
 <body>
+
     <div class="card">
-        <h3 style="color:#888;">SYSTEM STATUS</h3>
-        <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">SYSTEM READY</div>
-        <div style="margin-bottom:15px;">
-            <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
-            <span id="ind-heat" class="indicator"></span> <span style="font-size:12px; color:#888;">HEATER UNIT</span>
-        </div>
+        <h3 style="color:#888;">REAL-TIME STATUS</h3>
         <div class="grid">
-            <div class="stat-box"><div class="stat-lbl">AC TEMP (T1)</div><div class="stat-val" id="disp-temp">--°F</div></div>
-            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:14px;">--.---</div></div>
+            <div class="stat-box"><div class="stat-lbl">PI TEMP (T1)</div><div class="stat-val" id="disp-temp">--°F</div></div>
             <div class="stat-box"><div class="stat-lbl">SIGNAL</div><div class="stat-val" id="disp-signal">--%</div></div>
-            <div class="stat-box"><div class="stat-lbl">LAST PACKET</div><div class="stat-val" id="disp-time" style="font-size:14px; font-family: monospace;">--:--:--</div></div>
+            <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:14px;">--</div></div>
+            <div class="stat-box"><div class="stat-lbl">UPDATED</div><div class="stat-val" id="disp-time" style="font-size:14px;">--</div></div>
         </div>
-        <button class="btn btn-on" onclick="pub('ON')">ACTIVATE HEATER</button>
-        <button class="btn btn-off" onclick="pub('OFF')">ACTIVATE AC (HEAT OFF)</button>
-        <button class="btn btn-blue" onclick="pub('SNAP')">📸 TAKE PHOTO</button>
     </div>
 
     <div class="card">
-        <h3 style="color:#888; margin:0;">TEMPERATURE HISTORY</h3>
-        <canvas id="tempChart"></canvas>
-    </div>
-
-    <div class="card">
-        <div style="display:flex; justify-content:space-between;">
-            <h3 style="color:#888; margin:0;">COMMAND LOG</h3>
-            <button onclick="document.getElementById('command-log').innerHTML=''" style="background:none; border:none; color:#555; cursor:pointer;">CLEAR</button>
-        </div>
-        <div id="command-log">> Waiting for data...</div>
+        <h3 style="color:#888;">LAST HOUR HISTORY</h3>
+        <canvas id="tempChart" style="height:250px;"></canvas>
     </div>
 
 <script>
-    const AIO_USER = "Jonalli0124"; 
-    const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d"; 
-    const client = new Paho.MQTT.Client("io.adafruit.com", 443, "web_" + Math.random());
+    const AIO_USER = "Jonalli0124";
+    const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d";
+    const FEEDS = ["temp-1", "temp-2", "temp-3"];
 
-    // --- Initialize Chart ---
+    // 1. Setup Chart
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
-            datasets: [{
-                label: 'Temp °F',
-                data: [],
-                borderColor: '#007bff',
-                backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                borderWidth: 2,
-                tension: 0.3,
-                fill: true
-            }]
+            datasets: [
+                { label: 'Pi CPU', borderColor: '#ff4500', data: [], tension: 0.3, pointRadius: 0 },
+                { label: 'Probe 2', borderColor: '#007bff', data: [], tension: 0.3, pointRadius: 0 },
+                { label: 'Probe 3', borderColor: '#28a745', data: [], tension: 0.3, pointRadius: 0 }
+            ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { display: false },
-                y: { grid: { color: '#444' }, ticks: { color: '#aaa' } }
-            }
+            scales: { x: { display: false }, y: { grid: { color: '#444' }, ticks: { color: '#888' } } },
+            plugins: { legend: { labels: { color: '#aaa' } } }
         }
     });
 
+    // 2. Fetch Historical Data (Last 1 Hour)
+    async function fetchHistory() {
+        console.log("Fetching last hour of data...");
+        for (let i = 0; i < FEEDS.length; i++) {
+            // Using Adafruit IO API to get last 60 mins
+            const url = `https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${FEEDS[i]}/data?hours=1`;
+            const resp = await fetch(url, { headers: {'X-AIO-Key': AIO_KEY} });
+            const data = await resp.json();
+            
+            // Reverse so oldest data is first for the graph
+            const points = data.reverse();
+            points.forEach(p => {
+                tempChart.data.datasets[i].data.push(parseFloat(p.value));
+                if(i === 0) {
+                    const ts = new Date(p.created_at).toLocaleTimeString([], {hour12:false});
+                    tempChart.data.labels.push(ts);
+                }
+            });
+        }
+        tempChart.update();
+    }
+
+    // 3. Setup MQTT for Real-time
+    const client = new Paho.MQTT.Client("io.adafruit.com", 443, "web_" + Math.random());
+    
     client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
         client.subscribe(AIO_USER + "/feeds/#");
+        fetchHistory(); // Load history once connected
     }});
 
     client.onMessageArrived = (msg) => {
         const payload = msg.payloadString;
         const topic = msg.destinationName;
         const now = new Date().toLocaleTimeString([], {hour12: false});
-        document.getElementById("disp-time").innerText = now;
 
-        if(topic.endsWith("ip-address")) {
-            document.getElementById("disp-ip").innerText = payload;
-        } 
-        else if(topic.endsWith("temp-1")) {
+        if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload + "°F";
-            // Update Graph
-            tempChart.data.labels.push(now);
-            tempChart.data.datasets[0].data.push(parseFloat(payload));
-            if(tempChart.data.labels.length > 20) {
-                tempChart.data.labels.shift();
-                tempChart.data.datasets[0].data.shift();
-            }
-            tempChart.update();
-        }
-        else if(topic.endsWith("relay-heater")) {
-            const isHeater = (payload === "ON");
-            document.getElementById("status-display").innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
-            document.getElementById("status-display").style.color = isHeater ? "#ff4500" : "#007bff";
-            document.getElementById("ind-heat").className = isHeater ? "indicator active-heat" : "indicator";
-            document.getElementById("ind-ac").className = !isHeater ? "indicator active-ac" : "indicator";
-            addLog("RELAY: " + payload);
-        } else if(topic.endsWith("signal")) {
-            document.getElementById("disp-signal").innerText = payload + "%";
-        }
+            pushToGraph(0, payload, now);
+        } else if(topic.endsWith("temp-2")) { pushToGraph(1, payload, now);
+        } else if(topic.endsWith("temp-3")) { pushToGraph(2, payload, now);
+        } else if(topic.endsWith("signal")) { document.getElementById("disp-signal").innerText = payload + "%";
+        } else if(topic.endsWith("ip-address")) { document.getElementById("disp-ip").innerText = payload; }
+        
+        document.getElementById("disp-time").innerText = now;
     };
 
-    function addLog(msg) {
-        const log = document.getElementById("command-log");
-        const ts = new Date().toLocaleTimeString([], {hour12: false});
-        log.innerHTML = `<div>[${ts}] ${msg}</div>` + log.innerHTML;
-    }
-
-    function pub(cmd) { 
-        let m = new Paho.MQTT.Message(cmd);
-        m.destinationName = AIO_USER + "/feeds/" + (cmd === "SNAP" ? "camera" : "relay-heater");
-        client.send(m); 
+    function pushToGraph(idx, val, time) {
+        tempChart.data.datasets[idx].data.push(parseFloat(val));
+        if(idx === 0) tempChart.data.labels.push(time);
+        
+        // Maintain 60-point window (approx 1 hour)
+        if(tempChart.data.labels.length > 60) {
+            tempChart.data.labels.shift();
+            tempChart.data.datasets.forEach(d => d.data.shift());
+        }
+        tempChart.update('none');
     }
 </script>
 </body>
