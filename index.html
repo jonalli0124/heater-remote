@@ -20,7 +20,7 @@
         .indicator { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #444; transition: 0.3s; }
         .active-ac { background: #007bff; box-shadow: 0 0 10px #007bff; }
         .active-heat { background: #ff4500; box-shadow: 0 0 10px #ff4500; }
-        .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; cursor: pointer; }
+        .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; cursor: pointer; transition: 0.2s; }
         .btn-on { background: linear-gradient(135deg, #28a745, #218838); }
         .btn-off { background: linear-gradient(135deg, #dc3545, #c82333); }
         .btn-blue { background: #17a2b8; }
@@ -46,7 +46,7 @@
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
-            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">CONNECTING...</div>
+            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">SYNCING...</div>
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
                 <span id="ind-heat" class="indicator"></span> <span style="font-size:12px; color:#888;">HEATER UNIT</span>
@@ -66,11 +66,10 @@
                 <button id="btn-ssh-on" class="btn btn-ssh" onclick="pub_tunnel('ON')">🔓 SSH ON</button>
                 <button id="btn-ssh-off" class="btn btn-ssh" onclick="pub_tunnel('OFF')">🔒 SSH OFF</button>
             </div>
-            <img id="cam-view" src="" style="width:100%; border-radius:10px; display:none; margin-top:10px; border:2px solid #555;">
         </div>
 
         <div class="card">
-            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">30-MINUTE TEMPERATURE TREND</h3>
+            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TREND (30M)</h3>
             <div class="chart-wrapper">
                 <canvas id="tempChart"></canvas>
             </div>
@@ -81,7 +80,7 @@
                 <h3 style="color:#888; margin:0;">COMMAND LOG</h3>
                 <button class="clear-btn" onclick="clearLog()">CLEAR</button>
             </div>
-            <div id="command-log">> Waiting for login...</div>
+            <div id="command-log">> Awaiting login...</div>
         </div>
     </div>
 
@@ -93,7 +92,7 @@
 
     let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
 
-    // --- CHART INITIALIZATION ---
+    // --- CHART SETUP ---
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
         type: 'line',
@@ -109,15 +108,10 @@
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                x: { 
-                    grid: { color: '#333' }, 
-                    ticks: { color: '#888', maxRotation: 0, autoSkip: true, maxTicksLimit: 5 } 
-                },
+                x: { grid: { color: '#333' }, ticks: { color: '#888', autoSkip: true, maxTicksLimit: 6 } },
                 y: { grid: { color: '#333' }, ticks: { color: '#888' } }
             },
-            plugins: {
-                legend: { position: 'top', labels: { color: '#aaa', font: { size: 10 }, boxWidth: 10 } }
-            }
+            plugins: { legend: { position: 'top', labels: { color: '#aaa', font: { size: 10 }, boxWidth: 10 } } }
         }
     });
 
@@ -129,47 +123,52 @@
             document.getElementById("app").style.opacity = "1";
             document.getElementById("app").style.pointerEvents = "auto";
             
-            await fetchHistory(); // Get old data first
-            connectMQTT();      // Then start listening for new data
+            await initSystem(); 
+            connectMQTT();
         } else { document.getElementById("err-msg").style.display = "block"; }
     }
 
-    // --- FETCH LAST 30 MINS VIA REST API ---
-    async function fetchHistory() {
-        addLog("SYSTEM: Fetching history...");
-        const feeds = ['temp-1', 'temp-2', 'temp-3'];
+    async function initSystem() {
+        addLog("SYSTEM: Running Initialization...");
+        const feeds = ['temp-1', 'temp-2', 'temp-3', 'tunnel', 'relay-heater', 'ip-address'];
         
         try {
-            const results = await Promise.all(feeds.map(feed => 
-                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${feed}/data?hours=0.5`, {
+            // 1. Fetch Temperature History
+            const hist = await Promise.all(['temp-1', 'temp-2', 'temp-3'].map(f => 
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data?hours=0.5`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
                 }).then(res => res.json())
             ));
 
-            // Process data - Adafruit returns newest first, so we reverse it
-            const history = {};
-            results.forEach((data, i) => {
-                history[feeds[i]] = data.reverse();
-            });
-
-            // Use T1's timestamps as the primary labels
-            tempChart.data.labels = history['temp-1'].map(d => new Date(d.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
-            tempChart.data.datasets[0].data = history['temp-1'].map(d => parseFloat(d.value));
-            tempChart.data.datasets[1].data = history['temp-2'].map(d => parseFloat(d.value));
-            tempChart.data.datasets[2].data = history['temp-3'].map(d => parseFloat(d.value));
-            
+            const cleanHist = hist.map(d => d.reverse());
+            tempChart.data.labels = cleanHist[0].map(d => new Date(d.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+            tempChart.data.datasets[0].data = cleanHist[0].map(d => parseFloat(d.value));
+            tempChart.data.datasets[1].data = cleanHist[1].map(d => parseFloat(d.value));
+            tempChart.data.datasets[2].data = cleanHist[2].map(d => parseFloat(d.value));
             tempChart.update();
-            addLog("SYSTEM: History loaded.");
+
+            // 2. Fetch Latest States (Tunnel, Relay, IP)
+            const states = await Promise.all(['tunnel', 'relay-heater', 'ip-address', 'temp-1'].map(f => 
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data/last`, {
+                    headers: { 'X-AIO-Key': AIO_KEY }
+                }).then(res => res.json())
+            ));
+
+            updateSSHUI(states[0].value);
+            updateRelayUI(states[1].value);
+            document.getElementById("disp-ip").innerText = states[2].value;
+            document.getElementById("disp-temp").innerText = states[3].value + "°";
+            
+            addLog("SYSTEM: Boot sync successful.");
         } catch (err) {
-            addLog("ERR: Failed to load history.");
+            addLog("ERR: Initialization failed.");
         }
     }
 
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
             client.subscribe(AIO_USER + "/feeds/#");
-            document.getElementById("status-display").innerText = "SYSTEM READY";
-            addLog("MQTT: Connected Live");
+            addLog("MQTT: Linked to Cloud.");
         }});
     }
 
@@ -181,36 +180,34 @@
 
         document.getElementById("disp-time").innerText = now.toLocaleTimeString();
 
-        if(topic.endsWith("ip-address")) {
-            document.getElementById("disp-ip").innerText = payload;
-        } 
+        if(topic.endsWith("ip-address")) document.getElementById("disp-ip").innerText = payload;
         else if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload + "°";
             updateLiveChart(0, timeLabel, payload);
         }
         else if(topic.endsWith("temp-2")) updateLiveChart(1, timeLabel, payload);
         else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, payload);
-        else if(topic.endsWith("relay-heater")) {
-            const isHeater = (payload === "ON");
-            document.getElementById("status-display").innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
-            document.getElementById("status-display").style.color = isHeater ? "#ff4500" : "#007bff";
-            document.getElementById("ind-heat").className = isHeater ? "indicator active-heat" : "indicator";
-            document.getElementById("ind-ac").className = !isHeater ? "indicator active-ac" : "indicator";
-        }
-        else if(topic.endsWith("camera")) {
-            const img = document.getElementById("cam-view");
-            img.src = "data:image/jpeg;base64," + payload; 
-            img.style.display = "block";
-            addLog("📸 PHOTO RECEIVED");
-        }
+        else if(topic.endsWith("relay-heater")) updateRelayUI(payload);
+        else if(topic.endsWith("tunnel")) updateSSHUI(payload);
     };
 
+    function updateRelayUI(val) {
+        const isHeater = (val === "ON");
+        const display = document.getElementById("status-display");
+        display.innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
+        display.style.color = isHeater ? "#ff4500" : "#007bff";
+        document.getElementById("ind-heat").className = isHeater ? "indicator active-heat" : "indicator";
+        document.getElementById("ind-ac").className = !isHeater ? "indicator active-ac" : "indicator";
+    }
+
+    function updateSSHUI(val) {
+        document.getElementById("btn-ssh-on").className = (val === "ON") ? "btn btn-ssh ssh-active" : "btn btn-ssh";
+        document.getElementById("btn-ssh-off").className = (val === "OFF") ? "btn btn-ssh ssh-active" : "btn btn-ssh";
+    }
+
     function updateLiveChart(index, label, val) {
-        // Only push label if it's the primary feed (to keep sync)
         if(index === 0) tempChart.data.labels.push(label);
         tempChart.data.datasets[index].data.push(parseFloat(val));
-
-        // Limit chart length to roughly 50 points to prevent lag
         if(tempChart.data.labels.length > 50) {
             tempChart.data.labels.shift();
             tempChart.data.datasets.forEach(ds => ds.data.shift());
@@ -220,7 +217,7 @@
 
     function addLog(msg) {
         const log = document.getElementById("command-log");
-        if (log.innerHTML.includes("Waiting")) log.innerHTML = "";
+        if (log.innerHTML.includes("Awaiting")) log.innerHTML = "";
         let ts = new Date().toLocaleTimeString([], {hour12: false});
         log.innerHTML = `<div style="border-bottom:1px solid #222; padding:2px;">[${ts}] ${msg}</div>` + log.innerHTML;
     }
