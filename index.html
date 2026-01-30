@@ -20,12 +20,10 @@
         .stat-val { font-size: 18px; font-weight: bold; margin-top: 5px; color: #fff; }
         .stat-lbl { font-size: 11px; color: #aaa; text-transform: uppercase; }
 
-        /* Indicators */
         .indicator { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #444; transition: 0.3s; }
         .active-ac { background: #007bff; box-shadow: 0 0 10px #007bff; }
         .active-heat { background: #ff4500; box-shadow: 0 0 10px #ff4500; }
 
-        /* Buttons */
         .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; cursor: pointer; }
         .btn-on { background: linear-gradient(135deg, #28a745, #218838); }
         .btn-off { background: linear-gradient(135deg, #dc3545, #c82333); }
@@ -93,45 +91,57 @@
 
     function attemptLogin() {
         if(document.getElementById("username-in").value === "miles" && document.getElementById("password-in").value === "miles") {
+            // UNLOCK UI IMMEDIATELY
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
             document.getElementById("app").style.pointerEvents = "auto";
+            
             connectMQTT();
             loadHistory();
         } else { document.getElementById("err-msg").style.display = "block"; }
     }
 
     async function loadHistory() {
-        try {
-            const h = { headers: {'X-AIO-Key': AIO_KEY} };
-            const [t1, t2, ssh, logs] = await Promise.all([
-                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=360`, h).then(r => r.json()),
-                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=360`, h).then(r => r.json()),
-                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/tunnel/data?limit=1`, h).then(r => r.json()),
-                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/relay-heater/data?limit=5`, h).then(r => r.json())
-            ]);
+        const h = { headers: {'X-AIO-Key': AIO_KEY} };
+        
+        // SAFE FETCH TO PREVENT HANGING
+        const safeFetch = async (url) => {
+            try {
+                const r = await fetch(url, h);
+                return r.ok ? await r.json() : [];
+            } catch (e) { return []; }
+        };
 
-            if(ssh.length) updateSSHUI(ssh[0].value);
-            logs.forEach(l => addLog("MODE: " + l.value, l.created_at));
+        const [t1, t2, ssh, logs] = await Promise.all([
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=360`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=360`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/tunnel/data?limit=1`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/relay-heater/data?limit=5`)
+        ]);
 
-            const labels = t1.reverse().map(f => {
-                let d = new Date(f.created_at);
-                return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
-            });
+        if(ssh.length) updateSSHUI(ssh[0].value);
+        if(logs.length) logs.forEach(l => addLog("MODE: " + l.value, l.created_at));
 
-            tempChart = new Chart(document.getElementById('tempChart').getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        { label: 'AC (T1)', data: t1.map(f => f.value), borderColor: '#007bff', backgroundColor: 'rgba(0,123,255,0.1)', fill: true, pointRadius: 0, tension: 0.3 },
-                        { label: 'HEATER (T2)', data: t2.reverse().map(f => f.value), borderColor: '#ff4500', backgroundColor: 'rgba(255,69,0,0.1)', fill: true, pointRadius: 0, tension: 0.3 }
-                    ]
-                },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#888' } } }, scales: { x: { ticks: { color: '#888', maxTicksLimit: 6 } }, y: { ticks: { color: '#888' }, grid: { color: '#333' } } } }
-            });
-        } catch(e) { console.error(e); }
+        const labels = t1.length > 0 ? t1.reverse().map(f => {
+            let d = new Date(f.created_at);
+            return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
+        }) : [new Date().getHours() + ":00"];
+
+        const t1Vals = t1.length > 0 ? t1.map(f => f.value) : [0];
+        const t2Vals = t2.length > 0 ? t2.reverse().map(f => f.value) : [0];
+
+        tempChart = new Chart(document.getElementById('tempChart').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'AC (T1)', data: t1Vals, borderColor: '#007bff', backgroundColor: 'rgba(0,123,255,0.1)', fill: true, pointRadius: 0, tension: 0.3 },
+                    { label: 'HEATER (T2)', data: t2Vals, borderColor: '#ff4500', backgroundColor: 'rgba(255,69,0,0.1)', fill: true, pointRadius: 0, tension: 0.3 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#888' } } }, scales: { x: { ticks: { color: '#888', maxTicksLimit: 6 } }, y: { ticks: { color: '#888' }, grid: { color: '#333' } } } }
+        });
     }
 
     const client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
@@ -148,9 +158,9 @@
 
         if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload + "°F";
-            updateChart(0, payload, timeStr);
+            updateLiveChart(0, payload, timeStr);
         }
-        if(topic.endsWith("temp-2")) updateChart(1, payload, timeStr);
+        if(topic.endsWith("temp-2")) updateLiveChart(1, payload, timeStr);
         if(topic.endsWith("signal")) document.getElementById("disp-signal").innerText = payload + "%";
         if(topic.endsWith("tunnel")) updateSSHUI(payload);
         if(topic.endsWith("relay-heater")) {
@@ -163,7 +173,7 @@
         }
     };
 
-    function updateChart(idx, val, time) {
+    function updateLiveChart(idx, val, time) {
         if(!tempChart) return;
         tempChart.data.datasets[idx].data.push(val);
         if(idx === 0) tempChart.data.labels.push(time);
