@@ -29,6 +29,7 @@
         #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+        .chart-wrapper { width: 100%; height: 200px; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -69,6 +70,13 @@
         </div>
 
         <div class="card">
+            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TRENDS</h3>
+            <div class="chart-wrapper">
+                <canvas id="tempChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
             <div class="log-header">
                 <h3 style="color:#888; margin:0;">COMMAND LOG</h3>
                 <button class="clear-btn" onclick="clearLog()">CLEAR</button>
@@ -85,6 +93,31 @@
 
     let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
 
+    // --- CHART INITIALIZATION ---
+    const ctx = document.getElementById('tempChart').getContext('2d');
+    const tempChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                { label: 'T1 (Pi)', borderColor: '#007bff', backgroundColor: '#007bff33', data: [], tension: 0.4, borderWidth: 2, pointRadius: 0 },
+                { label: 'T2 (Heater)', borderColor: '#ff4500', backgroundColor: '#ff450033', data: [], tension: 0.4, borderWidth: 2, pointRadius: 0 },
+                { label: 'T3 (AC)', borderColor: '#17a2b8', backgroundColor: '#17a2b833', data: [], tension: 0.4, borderWidth: 2, pointRadius: 0 }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { ticks: { display: false }, grid: { display: false } },
+                y: { grid: { color: '#333' }, ticks: { color: '#888' } }
+            },
+            plugins: {
+                legend: { labels: { color: '#aaa', font: { size: 10 }, boxWidth: 12 } }
+            }
+        }
+    });
+
     function attemptLogin() {
         if(document.getElementById("username-in").value === "miles" && 
            document.getElementById("password-in").value === "miles") {
@@ -99,6 +132,7 @@
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
             client.subscribe(AIO_USER + "/feeds/#");
+            addLog("MQTT: Connected to Adafruit IO");
         }});
     }
 
@@ -110,26 +144,55 @@
         const fullTime = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
         document.getElementById("disp-time").innerText = fullTime;
 
+        // Route Data
         if(topic.endsWith("ip-address")) {
             document.getElementById("disp-ip").innerText = payload;
             addLog("NET: IP Update " + payload);
-        } else if(topic.endsWith("relay-heater")) {
+        } 
+        else if(topic.endsWith("temp-1")) {
+            document.getElementById("disp-temp").innerText = payload + "°";
+            updateChartData(0, payload);
+        }
+        else if(topic.endsWith("temp-2")) {
+            updateChartData(1, payload);
+        }
+        else if(topic.endsWith("temp-3")) {
+            updateChartData(2, payload);
+        }
+        else if(topic.endsWith("relay-heater")) {
             addLog("RELAY: " + payload);
             const isHeater = (payload === "ON");
             document.getElementById("status-display").innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
             document.getElementById("status-display").style.color = isHeater ? "#ff4500" : "#007bff";
             document.getElementById("ind-heat").className = isHeater ? "indicator active-heat" : "indicator";
             document.getElementById("ind-ac").className = !isHeater ? "indicator active-ac" : "indicator";
-        } else if(topic.endsWith("camera")) {
+        } 
+        else if(topic.endsWith("camera")) {
             const img = document.getElementById("cam-view");
             img.src = "data:image/jpeg;base64," + payload; 
             img.style.display = "block";
             addLog("📸 PHOTO RECEIVED");
-        } else if(topic.endsWith("tunnel")) {
+        } 
+        else if(topic.endsWith("tunnel")) {
             updateSSHUI(payload);
             addLog("TUNNEL: " + payload);
         }
     };
+
+    function updateChartData(index, val) {
+        const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        tempChart.data.datasets[index].data.push(parseFloat(val));
+        
+        // Use the first dataset to manage the X-Axis labels
+        if(index === 0) tempChart.data.labels.push(timestamp);
+
+        // Keep last 20 points
+        if(tempChart.data.labels.length > 20) {
+            tempChart.data.labels.shift();
+            tempChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        tempChart.update('none'); // Update without animation for smoother real-time feel
+    }
 
     function updateSSHUI(val) {
         document.getElementById("btn-ssh-on").className = (val === "ON") ? "btn btn-ssh ssh-active" : "btn btn-ssh";
