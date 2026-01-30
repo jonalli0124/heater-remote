@@ -30,8 +30,10 @@
         .btn-ssh { font-size: 12px; padding: 10px; width: 48%; display: inline-block; background: #3a3a3a; color: #888; border: 1px solid #444; }
         .ssh-active { background: #17a2b8; color: white; box-shadow: 0 0 10px #17a2b8; border-color: #17a2b8; }
         
-        #command-log { height: 100px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
+        #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .graph-container { height: 300px; position: relative; }
+        .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -71,7 +73,10 @@
         </div>
 
         <div class="card">
-            <h3 style="color:#888;">COMMAND LOG</h3>
+            <div class="log-header">
+                <h3 style="color:#888; margin:0;">COMMAND LOG</h3>
+                <button class="clear-btn" onclick="clearLog()">CLEAR</button>
+            </div>
             <div id="command-log">> System online...</div>
         </div>
 
@@ -93,7 +98,7 @@
         if(document.getElementById("username-in").value === "miles" && 
            document.getElementById("password-in").value === "miles") {
             
-            // 1. UNLOCK UI IMMEDIATELY
+            // 1. UNLOCK UI FIRST so logging can start immediately
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
@@ -114,15 +119,16 @@
             } catch (e) { return []; }
         };
 
+        // Reduced limit to 30 to avoid being "Beyond Rate Limited" on load
         const [t1, t2, ssh, logs] = await Promise.all([
-            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=360`),
-            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=360`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=30`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=30`),
             safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/tunnel/data?limit=1`),
             safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/relay-heater/data?limit=5`)
         ]);
 
         if(ssh.length) updateSSHUI(ssh[0].value);
-        if(logs.length) logs.forEach(l => addLog("MODE: " + l.value, l.created_at));
+        if(logs.length) logs.reverse().forEach(l => addLog("MODE: " + l.value, l.created_at));
 
         const labels = t1.length > 0 ? t1.reverse().map(f => {
             let d = new Date(f.created_at);
@@ -161,16 +167,24 @@
             document.getElementById("disp-temp").innerText = payload + "°F";
             updateLiveChart(0, payload, timeStr);
         }
-        if(topic.endsWith("temp-2")) updateLiveChart(1, payload, timeStr);
-        if(topic.endsWith("signal")) document.getElementById("disp-signal").innerText = payload + "%";
-        if(topic.endsWith("tunnel")) updateSSHUI(payload);
-        if(topic.endsWith("relay-heater")) {
-            addLog("HEATER " + payload);
+        else if(topic.endsWith("temp-2")) updateLiveChart(1, payload, timeStr);
+        else if(topic.endsWith("signal")) document.getElementById("disp-signal").innerText = payload + "%";
+        else if(topic.endsWith("tunnel")) {
+            addLog("TUNNEL: " + payload);
+            updateSSHUI(payload);
+        }
+        else if(topic.endsWith("relay-heater")) {
+            addLog("HEATER: " + payload);
             const status = document.getElementById("status-display");
             status.innerText = (payload === "ON") ? "HEATER ACTIVE" : "AC ACTIVE";
             status.style.color = (payload === "ON") ? "#ff4500" : "#007bff";
-            document.getElementById("ind-ac").className = (payload === "OFF") ? "indicator active-ac" : "indicator";
             document.getElementById("ind-heat").className = (payload === "ON") ? "indicator active-heat" : "indicator";
+            if(payload === "ON") document.getElementById("ind-ac").className = "indicator";
+        }
+        else if(topic.endsWith("relay-ac")) {
+            addLog("AC: " + payload);
+            document.getElementById("ind-ac").className = (payload === "ON") ? "indicator active-ac" : "indicator";
+            if(payload === "ON") document.getElementById("ind-heat").className = "indicator";
         }
     };
 
@@ -192,9 +206,13 @@
 
     function addLog(msg, time) {
         const log = document.getElementById("command-log");
+        if (log.innerHTML.includes("System online...")) log.innerHTML = "";
         let d = time ? new Date(time) : new Date();
-        log.innerHTML = `<div>[${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}] ${msg}</div>` + log.innerHTML;
+        let ts = d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
+        log.innerHTML = `<div style="border-bottom:1px solid #222; padding:2px;">[${ts}] ${msg}</div>` + log.innerHTML;
     }
+
+    function clearLog() { document.getElementById("command-log").innerHTML = "> Log cleared..."; }
 
     function pub(cmd) { 
         let message = new Paho.MQTT.Message(cmd);
