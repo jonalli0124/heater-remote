@@ -30,6 +30,12 @@
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
         .chart-wrapper { width: 100%; height: 250px; margin-top: 10px; }
+        
+        /* Camera Container & Overlay */
+        .cam-container { position: relative; width: 100%; display: none; margin-bottom: 15px; }
+        #cam-view { width: 100%; border-radius: 12px; border: 2px solid #444; display: block; animation: fadeIn 0.5s; }
+        #cam-ts { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-family: monospace; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -46,6 +52,12 @@
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
+            
+            <div class="cam-container" id="cam-box">
+                <img id="cam-view" src="">
+                <div id="cam-ts">LAST CAPTURE: --:--</div>
+            </div>
+
             <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">BOOTING...</div>
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
@@ -92,7 +104,6 @@
 
     let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
 
-    // --- CHART INITIALIZATION ---
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
         type: 'line',
@@ -129,55 +140,55 @@
     }
 
     async function initSystem() {
-        addLog("SYSTEM: Beginning full state synchronization...", "#007bff");
-        
+        addLog("SYSTEM: Synchronizing states...", "#007bff");
         try {
-            // 1. Fetch History for the Graph
             const hist = await Promise.all(['temp-1', 'temp-2', 'temp-3'].map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data?hours=0.5`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
                 }).then(res => res.json())
             ));
-
             const cleanHist = hist.map(d => d.reverse());
             tempChart.data.labels = cleanHist[0].map(d => new Date(d.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
             tempChart.data.datasets[0].data = cleanHist[0].map(d => parseFloat(d.value));
             tempChart.data.datasets[1].data = cleanHist[1].map(d => parseFloat(d.value));
             tempChart.data.datasets[2].data = cleanHist[2].map(d => parseFloat(d.value));
             tempChart.update();
-            addLog("INIT: Loaded 30 minutes of historical data.");
 
-            // 2. Fetch Latest States
-            const feedsToSync = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'signal'];
-            const states = await Promise.all(feedsToSync.map(f => 
+            const feeds = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'camera'];
+            const states = await Promise.all(feeds.map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data/last`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
                 }).then(res => res.json())
             ));
 
             updateSSHUI(states[0].value);
-            addLog(`INIT: SSH Status identified as [${states[0].value}]`);
-            
             updateRelayUI(states[1].value);
-            addLog(`INIT: Relay Status identified as [${states[1].value}]`);
-            
             document.getElementById("disp-ip").innerText = states[2].value;
-            addLog(`INIT: Current Cell IP is ${states[2].value}`);
-            
             document.getElementById("disp-temp").innerText = states[3].value + "°";
-            addLog(`INIT: Signal Strength is ${states[4].value}%`);
             
-            addLog("SYSTEM: Startup sync complete. Switching to live mode.", "#28a745");
-        } catch (err) {
-            addLog("ERR: Initialization failed. Check network/API keys.", "#ff4500");
-        }
+            if (states[4].value.length > 500) {
+                renderImage(states[4].value, new Date(states[4].created_at));
+            }
+
+            addLog("SYSTEM: Startup sync complete.", "#28a745");
+        } catch (err) { addLog("ERR: Initialization failed.", "#ff4500"); }
+    }
+
+    function renderImage(base64, dateObj) {
+        const img = document.getElementById("cam-view");
+        const box = document.getElementById("cam-box");
+        const ts = document.getElementById("cam-ts");
+        
+        img.src = "data:image/jpeg;base64," + base64;
+        box.style.display = "block";
+        ts.innerText = "CAPTURED: " + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     }
 
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
             client.subscribe(AIO_USER + "/feeds/#");
-            addLog("MQTT: Live WebSocket established.");
             document.getElementById("status-display").innerText = "SYSTEM ACTIVE";
+            addLog("MQTT: Connected to Adafruit.");
         }});
     }
 
@@ -188,9 +199,13 @@
         const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
         const feedName = topic.split('/').pop();
 
-        // Log EVERY incoming packet
-        addLog(`LIVE: ${feedName.toUpperCase()} updated to ${payload}`, "#888");
+        if (payload.length > 1000) {
+            renderImage(payload, now);
+            addLog("📸 PHOTO: New capture received.", "#17a2b8");
+            return;
+        }
 
+        addLog(`LIVE: ${feedName.toUpperCase()} -> ${payload}`, "#888");
         document.getElementById("disp-time").innerText = now.toLocaleTimeString();
 
         if(topic.endsWith("ip-address")) document.getElementById("disp-ip").innerText = payload;
@@ -231,16 +246,10 @@
     function addLog(msg, color = "#0f0") {
         const log = document.getElementById("command-log");
         if (log.innerHTML.includes("Waiting for authorization")) log.innerHTML = "";
-        
-        const now = new Date();
-        const ts = now.toLocaleTimeString([], {hour12: false});
-
         const entry = document.createElement("div");
         entry.style.cssText = `border-bottom:1px solid #222; padding:4px; color:${color};`;
-        entry.innerHTML = `[${ts}] ${msg}`;
-        
+        entry.innerHTML = `[${new Date().toLocaleTimeString([], {hour12: false})}] ${msg}`;
         log.insertBefore(entry, log.firstChild);
-        
         if(log.childNodes.length > 60) log.removeChild(log.lastChild);
     }
 
@@ -250,14 +259,14 @@
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = AIO_USER + "/feeds/" + (cmd === "SNAP" ? "camera" : "relay-heater");
         client.send(m); 
-        addLog(`COMMAND: Sending [${cmd}] to ${m.destinationName}`, "#007bff");
+        addLog(`COMMAND: Sent [${cmd}]`, "#007bff");
     }
     
     function pub_tunnel(cmd) { 
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = AIO_USER + "/feeds/tunnel";
         client.send(m); 
-        addLog(`COMMAND: Tunnel [${cmd}] requested`, "#007bff");
+        addLog(`COMMAND: Tunnel [${cmd}]`, "#007bff");
     }
 </script>
 </body>
