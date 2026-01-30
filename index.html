@@ -49,7 +49,7 @@
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
-            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">INITIALIZING...</div>
+            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">SYSTEM READY</div>
             
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
@@ -72,7 +72,7 @@
 
         <div class="card">
             <h3 style="color:#888;">COMMAND LOG</h3>
-            <div id="command-log">> System booting...</div>
+            <div id="command-log">> System online...</div>
         </div>
 
         <div class="card">
@@ -90,8 +90,10 @@
     let tempChart;
 
     function attemptLogin() {
-        if(document.getElementById("username-in").value === "miles" && document.getElementById("password-in").value === "miles") {
-            // UNLOCK UI IMMEDIATELY
+        if(document.getElementById("username-in").value === "miles" && 
+           document.getElementById("password-in").value === "miles") {
+            
+            // 1. UNLOCK UI IMMEDIATELY
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
@@ -105,7 +107,6 @@
     async function loadHistory() {
         const h = { headers: {'X-AIO-Key': AIO_KEY} };
         
-        // SAFE FETCH TO PREVENT HANGING
         const safeFetch = async (url) => {
             try {
                 const r = await fetch(url, h);
@@ -147,7 +148,7 @@
     const client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
-            client.subscribe(`${AIO_USER}/feeds/#`);
+            client.subscribe(AIO_USER + "/feeds/#");
         }});
     }
 
@@ -195,8 +196,16 @@
         log.innerHTML = `<div>[${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}] ${msg}</div>` + log.innerHTML;
     }
 
-    function pub(cmd) { client.send(new Paho.MQTT.Message(cmd), `${AIO_USER}/feeds/relay-heater`); }
-    function pub_tunnel(cmd) { client.send(new Paho.MQTT.Message(cmd), `${AIO_USER}/feeds/tunnel`); }
+    function pub(cmd) { 
+        let message = new Paho.MQTT.Message(cmd);
+        message.destinationName = AIO_USER + "/feeds/relay-heater";
+        client.send(message); 
+    }
+    function pub_tunnel(cmd) { 
+        let message = new Paho.MQTT.Message(cmd);
+        message.destinationName = AIO_USER + "/feeds/tunnel";
+        client.send(message); 
+    }
 </script>
 </body>
 </html>
