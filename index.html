@@ -29,7 +29,7 @@
         #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
-        .chart-wrapper { width: 100%; height: 200px; margin-top: 10px; }
+        .chart-wrapper { width: 100%; height: 250px; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -46,7 +46,7 @@
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
-            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">SYSTEM READY</div>
+            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">CONNECTING...</div>
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
                 <span id="ind-heat" class="indicator"></span> <span style="font-size:12px; color:#888;">HEATER UNIT</span>
@@ -70,7 +70,7 @@
         </div>
 
         <div class="card">
-            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TRENDS</h3>
+            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">30-MINUTE TEMPERATURE TREND</h3>
             <div class="chart-wrapper">
                 <canvas id="tempChart"></canvas>
             </div>
@@ -81,7 +81,7 @@
                 <h3 style="color:#888; margin:0;">COMMAND LOG</h3>
                 <button class="clear-btn" onclick="clearLog()">CLEAR</button>
             </div>
-            <div id="command-log">> System online...</div>
+            <div id="command-log">> Waiting for login...</div>
         </div>
     </div>
 
@@ -100,108 +100,127 @@
         data: {
             labels: [],
             datasets: [
-                { label: 'T1 (Pi)', borderColor: '#007bff', backgroundColor: '#007bff33', data: [], tension: 0.4, borderWidth: 2, pointRadius: 0 },
-                { label: 'T2 (Heater)', borderColor: '#ff4500', backgroundColor: '#ff450033', data: [], tension: 0.4, borderWidth: 2, pointRadius: 0 },
-                { label: 'T3 (AC)', borderColor: '#17a2b8', backgroundColor: '#17a2b833', data: [], tension: 0.4, borderWidth: 2, pointRadius: 0 }
+                { label: 'T1 (Pi)', borderColor: '#007bff', backgroundColor: '#007bff22', data: [], tension: 0.3, pointRadius: 2, fill: true },
+                { label: 'T2 (Heat)', borderColor: '#ff4500', backgroundColor: '#ff450022', data: [], tension: 0.3, pointRadius: 2, fill: true },
+                { label: 'T3 (AC)', borderColor: '#17a2b8', backgroundColor: '#17a2b822', data: [], tension: 0.3, pointRadius: 2, fill: true }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                x: { ticks: { display: false }, grid: { display: false } },
+                x: { 
+                    grid: { color: '#333' }, 
+                    ticks: { color: '#888', maxRotation: 0, autoSkip: true, maxTicksLimit: 5 } 
+                },
                 y: { grid: { color: '#333' }, ticks: { color: '#888' } }
             },
             plugins: {
-                legend: { labels: { color: '#aaa', font: { size: 10 }, boxWidth: 12 } }
+                legend: { position: 'top', labels: { color: '#aaa', font: { size: 10 }, boxWidth: 10 } }
             }
         }
     });
 
-    function attemptLogin() {
+    async function attemptLogin() {
         if(document.getElementById("username-in").value === "miles" && 
            document.getElementById("password-in").value === "miles") {
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
             document.getElementById("app").style.pointerEvents = "auto";
-            connectMQTT();
+            
+            await fetchHistory(); // Get old data first
+            connectMQTT();      // Then start listening for new data
         } else { document.getElementById("err-msg").style.display = "block"; }
+    }
+
+    // --- FETCH LAST 30 MINS VIA REST API ---
+    async function fetchHistory() {
+        addLog("SYSTEM: Fetching history...");
+        const feeds = ['temp-1', 'temp-2', 'temp-3'];
+        
+        try {
+            const results = await Promise.all(feeds.map(feed => 
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${feed}/data?hours=0.5`, {
+                    headers: { 'X-AIO-Key': AIO_KEY }
+                }).then(res => res.json())
+            ));
+
+            // Process data - Adafruit returns newest first, so we reverse it
+            const history = {};
+            results.forEach((data, i) => {
+                history[feeds[i]] = data.reverse();
+            });
+
+            // Use T1's timestamps as the primary labels
+            tempChart.data.labels = history['temp-1'].map(d => new Date(d.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+            tempChart.data.datasets[0].data = history['temp-1'].map(d => parseFloat(d.value));
+            tempChart.data.datasets[1].data = history['temp-2'].map(d => parseFloat(d.value));
+            tempChart.data.datasets[2].data = history['temp-3'].map(d => parseFloat(d.value));
+            
+            tempChart.update();
+            addLog("SYSTEM: History loaded.");
+        } catch (err) {
+            addLog("ERR: Failed to load history.");
+        }
     }
 
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
             client.subscribe(AIO_USER + "/feeds/#");
-            addLog("MQTT: Connected to Adafruit IO");
+            document.getElementById("status-display").innerText = "SYSTEM READY";
+            addLog("MQTT: Connected Live");
         }});
     }
 
     client.onMessageArrived = (msg) => {
         const payload = msg.payloadString;
         const topic = msg.destinationName;
-        
         const now = new Date();
-        const fullTime = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0');
-        document.getElementById("disp-time").innerText = fullTime;
+        const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
 
-        // Route Data
+        document.getElementById("disp-time").innerText = now.toLocaleTimeString();
+
         if(topic.endsWith("ip-address")) {
             document.getElementById("disp-ip").innerText = payload;
-            addLog("NET: IP Update " + payload);
         } 
         else if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload + "°";
-            updateChartData(0, payload);
+            updateLiveChart(0, timeLabel, payload);
         }
-        else if(topic.endsWith("temp-2")) {
-            updateChartData(1, payload);
-        }
-        else if(topic.endsWith("temp-3")) {
-            updateChartData(2, payload);
-        }
+        else if(topic.endsWith("temp-2")) updateLiveChart(1, timeLabel, payload);
+        else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, payload);
         else if(topic.endsWith("relay-heater")) {
-            addLog("RELAY: " + payload);
             const isHeater = (payload === "ON");
             document.getElementById("status-display").innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
             document.getElementById("status-display").style.color = isHeater ? "#ff4500" : "#007bff";
             document.getElementById("ind-heat").className = isHeater ? "indicator active-heat" : "indicator";
             document.getElementById("ind-ac").className = !isHeater ? "indicator active-ac" : "indicator";
-        } 
+        }
         else if(topic.endsWith("camera")) {
             const img = document.getElementById("cam-view");
             img.src = "data:image/jpeg;base64," + payload; 
             img.style.display = "block";
             addLog("📸 PHOTO RECEIVED");
-        } 
-        else if(topic.endsWith("tunnel")) {
-            updateSSHUI(payload);
-            addLog("TUNNEL: " + payload);
         }
     };
 
-    function updateChartData(index, val) {
-        const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    function updateLiveChart(index, label, val) {
+        // Only push label if it's the primary feed (to keep sync)
+        if(index === 0) tempChart.data.labels.push(label);
         tempChart.data.datasets[index].data.push(parseFloat(val));
-        
-        // Use the first dataset to manage the X-Axis labels
-        if(index === 0) tempChart.data.labels.push(timestamp);
 
-        // Keep last 20 points
-        if(tempChart.data.labels.length > 20) {
+        // Limit chart length to roughly 50 points to prevent lag
+        if(tempChart.data.labels.length > 50) {
             tempChart.data.labels.shift();
             tempChart.data.datasets.forEach(ds => ds.data.shift());
         }
-        tempChart.update('none'); // Update without animation for smoother real-time feel
-    }
-
-    function updateSSHUI(val) {
-        document.getElementById("btn-ssh-on").className = (val === "ON") ? "btn btn-ssh ssh-active" : "btn btn-ssh";
-        document.getElementById("btn-ssh-off").className = (val === "OFF") ? "btn btn-ssh ssh-active" : "btn btn-ssh";
+        tempChart.update('none');
     }
 
     function addLog(msg) {
         const log = document.getElementById("command-log");
-        if (log.innerHTML.includes("System online")) log.innerHTML = "";
+        if (log.innerHTML.includes("Waiting")) log.innerHTML = "";
         let ts = new Date().toLocaleTimeString([], {hour12: false});
         log.innerHTML = `<div style="border-bottom:1px solid #222; padding:2px;">[${ts}] ${msg}</div>` + log.innerHTML;
     }
