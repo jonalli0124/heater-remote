@@ -64,13 +64,13 @@
                 <div class="stat-box"><div class="stat-lbl">LAST UPDATED</div><div class="stat-val stat-small" id="disp-time">--</div></div>
             </div>
 
-            <button class="btn btn-on" onclick="pub('ON')">TURN ON</button>
-            <button class="btn btn-off" onclick="pub('OFF')">TURN OFF</button>
-            <button class="btn btn-blue" onclick="pub('TAKE_PHOTO')">📸 PHOTO</button>
+            <button class="btn btn-on" onclick="pub('ON')">HEATER ON</button>
+            <button class="btn btn-off" onclick="pub('OFF')">AC MODE (HEATER OFF)</button>
+            <button class="btn btn-blue" onclick="pub('SNAP')">📸 PHOTO</button>
             
             <div style="margin-top:10px;">
-                <button id="btn-ssh-on" class="btn btn-ssh ssh-inactive" onclick="pub('SSH_START')">🔓 SSH ON</button>
-                <button id="btn-ssh-off" class="btn btn-ssh ssh-inactive" onclick="pub('SSH_STOP')">🔒 SSH OFF</button>
+                <button id="btn-ssh-on" class="btn btn-ssh ssh-inactive" onclick="pub_tunnel('ON')">🔓 SSH ON</button>
+                <button id="btn-ssh-off" class="btn btn-ssh ssh-inactive" onclick="pub_tunnel('OFF')">🔒 SSH OFF</button>
             </div>
 
             <img id="cam-view" src="" style="width:100%; border-radius:10px; display:none; margin-top:10px; border:2px solid #555;">
@@ -92,36 +92,23 @@
     const CRED_USER = "miles";
     const CRED_PASS = "miles";
 
-    // Your Adafruit Username (from screenshot)
     const AIO_USER = "Jonalli0124"; 
-    
-    // ⚠️ PASTE YOUR KEY BELOW between the quotes!
     const AIO_KEY = "6c8ce060af344d95afc44350ecfd279d"; 
 
     // --- ⚙️ SYSTEM CONSTANTS ---
     const BROKER = "io.adafruit.com"; 
-    const PORT = 443; // Secure WebSockets
+    const PORT = 443; 
 
-    // --- LOGIC ---
     function attemptLogin() {
         const u = document.getElementById("username-in").value;
         const p = document.getElementById("password-in").value;
 
         if(u === CRED_USER && p === CRED_PASS) {
-            
-            // Safety Check
-            if(AIO_KEY.includes("PASTE_YOUR")) { 
-                alert("⚠️ STOP! \n\nYou forgot to paste your Adafruit IO KEY in the code (Line 99)."); 
-                return;
-            }
-
-            // Unlock UI
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
             document.getElementById("app").style.pointerEvents = "auto";
             
-            // Start Systems
             connectMQTT();
             loadHistory(); 
         } else {
@@ -129,22 +116,16 @@
         }
     }
 
-    // --- 📊 HISTORY GRAPH (REPLACES THINGSPEAK) ---
     async function loadHistory() {
         try {
-            console.log("Fetching History from Adafruit IO...");
-            
-            // Fetch Temp-1 Data
             const tResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=50`, {headers: {'X-AIO-Key': AIO_KEY}});
             const tData = await tResp.json();
-            tData.reverse(); // AIO gives newest first
+            tData.reverse(); 
 
-            // Fetch Signal Data
             const sResp = await fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/signal/data?limit=50`, {headers: {'X-AIO-Key': AIO_KEY}});
             const sData = await sResp.json();
             sData.reverse();
 
-            // Prepare Chart Data
             const times = tData.map(f => { 
                 let d = new Date(f.created_at); 
                 return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0'); 
@@ -152,14 +133,12 @@
             const temps = tData.map(f => parseFloat(f.value));
             const signals = sData.map(f => parseFloat(f.value));
 
-            // Render Temp Chart
             new Chart(document.getElementById('tempChart'), { 
                 type: 'line', 
                 data: { labels: times, datasets: [{ label: 'Temp (F)', data: temps, borderColor: '#28a745', backgroundColor: 'rgba(40, 167, 69, 0.1)', fill: true, tension: 0.4, pointRadius: 1 }] }, 
                 options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, grid: {display:false}, ticks: {color:'#888'} }, y: { grid: {color: '#444'}, ticks: {color:'#888'} } }, plugins: { legend: {display: false} } } 
             });
 
-            // Render Signal Chart
             new Chart(document.getElementById('signalChart'), { 
                 type: 'bar', 
                 data: { labels: times, datasets: [{ label: 'Signal %', data: signals, backgroundColor: '#17a2b8' }] }, 
@@ -176,64 +155,72 @@
         client.connect({ 
             useSSL: true, 
             userName: AIO_USER, 
-            password: AIO_KEY, // AIO uses the Key as the password
+            password: AIO_KEY, 
             onSuccess: () => {
                 console.log("✅ Connected to Adafruit IO MQTT");
-                // Subscribe to feeds
-                client.subscribe(`${AIO_USER}/feeds/heater`);
+                // Subscribed to corrected feed keys
+                client.subscribe(`${AIO_USER}/feeds/relay-heater`);
+                client.subscribe(`${AIO_USER}/feeds/relay-ac`);
                 client.subscribe(`${AIO_USER}/feeds/temp-1`);
                 client.subscribe(`${AIO_USER}/feeds/signal`);
                 client.subscribe(`${AIO_USER}/feeds/camera`); 
-                
-                // Ask for current status
-                pub('GET_STATUS');
+                client.subscribe(`${AIO_USER}/feeds/tunnel`);
             },
-            onFailure: (e) => { 
-                console.log("❌ Connection Failed:", e); 
-                alert("Connection failed. Check console for details.");
-            }
+            onFailure: (e) => { console.log("❌ Connection Failed:", e); }
         });
     }
 
     client.onMessageArrived = (msg) => {
         const topic = msg.destinationName;
         const payload = msg.payloadString;
-        console.log(`Msg [${topic}]: ${payload}`);
         
-        // Update Last Updated Time
         const now = new Date();
         document.getElementById("disp-time").innerText = now.getHours() + ":" + String(now.getMinutes()).padStart(2,'0') + ":" + String(now.getSeconds()).padStart(2,'0');
 
-        // ROUTING
         if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload;
         } 
         else if(topic.endsWith("signal")) {
             document.getElementById("disp-signal").innerText = payload + "%";
         }
-        else if(topic.endsWith("heater")) {
+        else if(topic.endsWith("relay-heater")) {
             const s = document.getElementById("status-display");
-            s.innerText = payload;
-            
-            // Color Logic
-            if(payload === "ON") s.style.color = "#28a745";
-            else if(payload === "OFF") s.style.color = "#dc3545";
-            else s.style.color = "#ffc107";
+            s.innerText = (payload === "ON") ? "HEATER ACTIVE" : "AC ACTIVE";
+            s.style.color = (payload === "ON") ? "#28a745" : "#dc3545";
         }
         else if(topic.endsWith("camera")) {
-            // Assumes payload is base64 string
             const img = document.getElementById("cam-view");
             img.src = "data:image/jpeg;base64," + payload; 
             img.style.display = "block";
         }
+        else if(topic.endsWith("tunnel")) {
+            const btnOn = document.getElementById("btn-ssh-on");
+            const btnOff = document.getElementById("btn-ssh-off");
+            if(payload === "ON") {
+                btnOn.className = "btn btn-ssh ssh-active";
+                btnOff.className = "btn btn-ssh ssh-inactive";
+            } else {
+                btnOn.className = "btn btn-ssh ssh-inactive";
+                btnOff.className = "btn btn-ssh ssh-active";
+            }
+        }
     };
 
     function pub(cmd) {
-        // Send command to 'heater' feed
+        // Updated to publish to relay-heater to match Python code
+        let targetFeed = "relay-heater";
+        if (cmd === "SNAP") targetFeed = "camera";
+        
         message = new Paho.MQTT.Message(cmd);
-        message.destinationName = `${AIO_USER}/feeds/heater`;
+        message.destinationName = `${AIO_USER}/feeds/${targetFeed}`;
         client.send(message);
-        console.log("Sent:", cmd);
+        console.log("Sent:", cmd, "to", targetFeed);
+    }
+
+    function pub_tunnel(cmd) {
+        message = new Paho.MQTT.Message(cmd);
+        message.destinationName = `${AIO_USER}/feeds/tunnel`;
+        client.send(message);
     }
 </script>
 </body>
