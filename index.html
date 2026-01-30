@@ -5,39 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; background: #1a1a1a; color: white; padding: 20px; margin: 0; }
         #login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; z-index: 1000; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .login-box { background: #222; padding: 30px; border-radius: 15px; width: 80%; max-width: 300px; border: 1px solid #333; }
         .login-input { padding: 12px; font-size: 18px; text-align: center; border-radius: 8px; border: 1px solid #444; background: #000; color: white; width: 100%; margin-bottom: 10px; box-sizing: border-box;}
         .login-btn { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; margin-top: 10px; cursor: pointer; }
-        
         #app { filter: blur(10px); pointer-events: none; opacity: 0.3; transition: all 0.5s; }
         .card { background: #2d2d2d; padding: 15px; border-radius: 20px; max-width: 600px; margin: 0 auto 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
         .stat-box { background: #3a3a3a; padding: 10px; border-radius: 10px; text-align: left; }
         .stat-val { font-size: 18px; font-weight: bold; margin-top: 5px; color: #fff; }
         .stat-lbl { font-size: 11px; color: #aaa; text-transform: uppercase; }
-
         .indicator { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #444; transition: 0.3s; }
         .active-ac { background: #007bff; box-shadow: 0 0 10px #007bff; }
         .active-heat { background: #ff4500; box-shadow: 0 0 10px #ff4500; }
-
         .btn { display: block; width: 100%; margin: 10px 0; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 12px; border: none; color: white; cursor: pointer; }
         .btn-on { background: linear-gradient(135deg, #28a745, #218838); }
         .btn-off { background: linear-gradient(135deg, #dc3545, #c82333); }
+        .btn-blue { background: #17a2b8; }
         .btn-ssh { font-size: 12px; padding: 10px; width: 48%; display: inline-block; background: #3a3a3a; color: #888; border: 1px solid #444; }
         .ssh-active { background: #17a2b8; color: white; box-shadow: 0 0 10px #17a2b8; border-color: #17a2b8; }
-        
         #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
-        .graph-container { height: 300px; position: relative; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
-
     <div id="login-screen">
         <div class="login-box">
             <h2>🔒 Restricted</h2>
@@ -52,24 +46,22 @@
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
             <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">SYSTEM READY</div>
-            
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
                 <span id="ind-heat" class="indicator"></span> <span style="font-size:12px; color:#888;">HEATER UNIT</span>
             </div>
-
             <div class="grid">
                 <div class="stat-box"><div class="stat-lbl">AC TEMP (T1)</div><div class="stat-val" id="disp-temp">--</div></div>
                 <div class="stat-box"><div class="stat-lbl">SIGNAL</div><div class="stat-val" id="disp-signal">--</div></div>
             </div>
-
             <button class="btn btn-on" onclick="pub('ON')">ACTIVATE HEATER</button>
             <button class="btn btn-off" onclick="pub('OFF')">ACTIVATE AC (HEAT OFF)</button>
-            
+            <button class="btn btn-blue" onclick="pub('SNAP')">📸 TAKE PHOTO</button>
             <div style="margin-top:10px;">
                 <button id="btn-ssh-on" class="btn btn-ssh" onclick="pub_tunnel('ON')">🔓 SSH ON</button>
                 <button id="btn-ssh-off" class="btn btn-ssh" onclick="pub_tunnel('OFF')">🔒 SSH OFF</button>
             </div>
+            <img id="cam-view" src="" style="width:100%; border-radius:10px; display:none; margin-top:10px; border:2px solid #555;">
         </div>
 
         <div class="card">
@@ -93,17 +85,15 @@
     const PORT = 443; 
 
     let tempChart;
+    let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
 
     function attemptLogin() {
         if(document.getElementById("username-in").value === "miles" && 
            document.getElementById("password-in").value === "miles") {
-            
-            // 1. UNLOCK UI FIRST so logging can start immediately
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
             document.getElementById("app").style.pointerEvents = "auto";
-            
             connectMQTT();
             loadHistory();
         } else { document.getElementById("err-msg").style.display = "block"; }
@@ -111,47 +101,39 @@
 
     async function loadHistory() {
         const h = { headers: {'X-AIO-Key': AIO_KEY} };
-        
         const safeFetch = async (url) => {
-            try {
-                const r = await fetch(url, h);
-                return r.ok ? await r.json() : [];
-            } catch (e) { return []; }
+            try { const r = await fetch(url, h); return r.ok ? await r.json() : []; } 
+            catch (e) { return []; }
         };
 
-        // Reduced limit to 30 to avoid being "Beyond Rate Limited" on load
         const [t1, t2, ssh, logs] = await Promise.all([
-            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=30`),
-            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=30`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-1/data?limit=60`),
+            safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/temp-2/data?limit=60`),
             safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/tunnel/data?limit=1`),
             safeFetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/relay-heater/data?limit=5`)
         ]);
 
         if(ssh.length) updateSSHUI(ssh[0].value);
-        if(logs.length) logs.reverse().forEach(l => addLog("MODE: " + l.value, l.created_at));
+        if(logs.length) logs.reverse().forEach(l => addLog("INIT: " + l.value, l.created_at));
 
-        const labels = t1.length > 0 ? t1.reverse().map(f => {
+        const labels = t1.length ? t1.reverse().map(f => {
             let d = new Date(f.created_at);
             return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
-        }) : [new Date().getHours() + ":00"];
-
-        const t1Vals = t1.length > 0 ? t1.map(f => f.value) : [0];
-        const t2Vals = t2.length > 0 ? t2.reverse().map(f => f.value) : [0];
+        }) : ["--:--"];
 
         tempChart = new Chart(document.getElementById('tempChart').getContext('2d'), {
             type: 'line',
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'AC (T1)', data: t1Vals, borderColor: '#007bff', backgroundColor: 'rgba(0,123,255,0.1)', fill: true, pointRadius: 0, tension: 0.3 },
-                    { label: 'HEATER (T2)', data: t2Vals, borderColor: '#ff4500', backgroundColor: 'rgba(255,69,0,0.1)', fill: true, pointRadius: 0, tension: 0.3 }
+                    { label: 'AC (T1)', data: t1.map(f => f.value), borderColor: '#007bff', backgroundColor: 'rgba(0,123,255,0.1)', fill: true, pointRadius: 0, tension: 0.3 },
+                    { label: 'HEAT (T2)', data: t2.reverse().map(f => f.value), borderColor: '#ff4500', backgroundColor: 'rgba(255,69,0,0.1)', fill: true, pointRadius: 0, tension: 0.3 }
                 ]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#888' } } }, scales: { x: { ticks: { color: '#888', maxTicksLimit: 6 } }, y: { ticks: { color: '#888' }, grid: { color: '#333' } } } }
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: '#888', maxTicksLimit: 6 } }, y: { ticks: { color: '#888' }, grid: { color: '#333' } } } }
         });
     }
 
-    const client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
             client.subscribe(AIO_USER + "/feeds/#");
@@ -166,36 +148,43 @@
         if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = payload + "°F";
             updateLiveChart(0, payload, timeStr);
-        }
-        else if(topic.endsWith("temp-2")) updateLiveChart(1, payload, timeStr);
-        else if(topic.endsWith("signal")) document.getElementById("disp-signal").innerText = payload + "%";
-        else if(topic.endsWith("tunnel")) {
+        } else if(topic.endsWith("temp-2")) {
+            updateLiveChart(1, payload, timeStr);
+        } else if(topic.endsWith("signal")) {
+            document.getElementById("disp-signal").innerText = payload + "%";
+        } else if(topic.endsWith("tunnel")) {
             addLog("TUNNEL: " + payload);
             updateSSHUI(payload);
-        }
-        else if(topic.endsWith("relay-heater")) {
+        } else if(topic.endsWith("relay-heater")) {
             addLog("HEATER: " + payload);
-            const status = document.getElementById("status-display");
-            status.innerText = (payload === "ON") ? "HEATER ACTIVE" : "AC ACTIVE";
-            status.style.color = (payload === "ON") ? "#ff4500" : "#007bff";
-            document.getElementById("ind-heat").className = (payload === "ON") ? "indicator active-heat" : "indicator";
-            if(payload === "ON") document.getElementById("ind-ac").className = "indicator";
-        }
-        else if(topic.endsWith("relay-ac")) {
+            updateStatus(payload === "ON");
+        } else if(topic.endsWith("relay-ac")) {
             addLog("AC: " + payload);
-            document.getElementById("ind-ac").className = (payload === "ON") ? "indicator active-ac" : "indicator";
-            if(payload === "ON") document.getElementById("ind-heat").className = "indicator";
+            updateStatus(payload === "OFF");
+        } else if(topic.endsWith("camera")) {
+            const img = document.getElementById("cam-view");
+            img.src = "data:image/jpeg;base64," + payload; 
+            img.style.display = "block";
+            addLog("📸 PHOTO RECEIVED");
         }
     };
+
+    function updateStatus(isHeater) {
+        const s = document.getElementById("status-display");
+        s.innerText = isHeater ? "HEATER ACTIVE" : "AC ACTIVE";
+        s.style.color = isHeater ? "#ff4500" : "#007bff";
+        document.getElementById("ind-heat").className = isHeater ? "indicator active-heat" : "indicator";
+        document.getElementById("ind-ac").className = !isHeater ? "indicator active-ac" : "indicator";
+    }
 
     function updateLiveChart(idx, val, time) {
         if(!tempChart) return;
         tempChart.data.datasets[idx].data.push(val);
-        if(idx === 0) tempChart.data.labels.push(time);
-        if(tempChart.data.datasets[idx].data.length > 360) {
-            tempChart.data.datasets[idx].data.shift();
-            if(idx === 0) tempChart.data.labels.shift();
+        if(idx === 0) {
+            tempChart.data.labels.push(time);
+            if(tempChart.data.labels.length > 60) tempChart.data.labels.shift();
         }
+        if(tempChart.data.datasets[idx].data.length > 60) tempChart.data.datasets[idx].data.shift();
         tempChart.update('none');
     }
 
@@ -206,7 +195,7 @@
 
     function addLog(msg, time) {
         const log = document.getElementById("command-log");
-        if (log.innerHTML.includes("System online...")) log.innerHTML = "";
+        if (log.innerHTML.includes("System online")) log.innerHTML = "";
         let d = time ? new Date(time) : new Date();
         let ts = d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
         log.innerHTML = `<div style="border-bottom:1px solid #222; padding:2px;">[${ts}] ${msg}</div>` + log.innerHTML;
@@ -215,14 +204,15 @@
     function clearLog() { document.getElementById("command-log").innerHTML = "> Log cleared..."; }
 
     function pub(cmd) { 
-        let message = new Paho.MQTT.Message(cmd);
-        message.destinationName = AIO_USER + "/feeds/relay-heater";
-        client.send(message); 
+        let m = new Paho.MQTT.Message(cmd);
+        m.destinationName = AIO_USER + "/feeds/" + (cmd === "SNAP" ? "camera" : "relay-heater");
+        client.send(m); 
     }
+    
     function pub_tunnel(cmd) { 
-        let message = new Paho.MQTT.Message(cmd);
-        message.destinationName = AIO_USER + "/feeds/tunnel";
-        client.send(message); 
+        let m = new Paho.MQTT.Message(cmd);
+        m.destinationName = AIO_USER + "/feeds/tunnel";
+        client.send(m); 
     }
 </script>
 </body>
