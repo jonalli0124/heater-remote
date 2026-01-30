@@ -26,7 +26,7 @@
         .btn-blue { background: #17a2b8; }
         .btn-ssh { font-size: 12px; padding: 10px; width: 48%; display: inline-block; background: #3a3a3a; color: #888; border: 1px solid #444; }
         .ssh-active { background: #17a2b8; color: white; box-shadow: 0 0 10px #17a2b8; border-color: #17a2b8; }
-        #command-log { height: 120px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
+        #command-log { height: 150px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
         .chart-wrapper { width: 100%; height: 250px; margin-top: 10px; }
@@ -46,16 +46,16 @@
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
-            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">SYNCING...</div>
+            <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">BOOTING...</div>
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
                 <span id="ind-heat" class="indicator"></span> <span style="font-size:12px; color:#888;">HEATER UNIT</span>
             </div>
             <div class="grid">
-                <div class="stat-box"><div class="stat-lbl">AC TEMP (T1)</div><div class="stat-val" id="disp-temp">--</div></div>
-                <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:14px;">--.---</div></div>
+                <div class="stat-box"><div class="stat-lbl">CPU TEMP (T1)</div><div class="stat-val" id="disp-temp">--</div></div>
+                <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:13px;">--.---</div></div>
                 <div class="stat-box" style="grid-column: span 2;">
-                    <div class="stat-lbl">LAST PACKET RECEIVED</div>
+                    <div class="stat-lbl">HEARTBEAT</div>
                     <div class="stat-val" id="disp-time" style="font-size: 14px; font-family: monospace;">--:--:--</div>
                 </div>
             </div>
@@ -69,7 +69,7 @@
         </div>
 
         <div class="card">
-            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TREND (30M)</h3>
+            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TREND (30 MINS)</h3>
             <div class="chart-wrapper">
                 <canvas id="tempChart"></canvas>
             </div>
@@ -77,10 +77,10 @@
 
         <div class="card">
             <div class="log-header">
-                <h3 style="color:#888; margin:0;">COMMAND LOG</h3>
+                <h3 style="color:#888; margin:0;">SYSTEM COMMAND LOG</h3>
                 <button class="clear-btn" onclick="clearLog()">CLEAR</button>
             </div>
-            <div id="command-log">> Awaiting login...</div>
+            <div id="command-log">> Waiting for authorization...</div>
         </div>
     </div>
 
@@ -92,16 +92,16 @@
 
     let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
 
-    // --- CHART SETUP ---
+    // --- CHART INITIALIZATION ---
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
             datasets: [
-                { label: 'T1 (Pi)', borderColor: '#007bff', backgroundColor: '#007bff22', data: [], tension: 0.3, pointRadius: 2, fill: true },
-                { label: 'T2 (Heat)', borderColor: '#ff4500', backgroundColor: '#ff450022', data: [], tension: 0.3, pointRadius: 2, fill: true },
-                { label: 'T3 (AC)', borderColor: '#17a2b8', backgroundColor: '#17a2b822', data: [], tension: 0.3, pointRadius: 2, fill: true }
+                { label: 'T1 (Pi)', borderColor: '#007bff', backgroundColor: '#007bff11', data: [], tension: 0.3, pointRadius: 2, fill: true },
+                { label: 'T2 (Heater)', borderColor: '#ff4500', backgroundColor: '#ff450011', data: [], tension: 0.3, pointRadius: 2, fill: true },
+                { label: 'T3 (AC)', borderColor: '#17a2b8', backgroundColor: '#17a2b811', data: [], tension: 0.3, pointRadius: 2, fill: true }
             ]
         },
         options: {
@@ -129,11 +129,10 @@
     }
 
     async function initSystem() {
-        addLog("SYSTEM: Running Initialization...");
-        const feeds = ['temp-1', 'temp-2', 'temp-3', 'tunnel', 'relay-heater', 'ip-address'];
+        addLog("SYSTEM: Beginning full state synchronization...", "#007bff");
         
         try {
-            // 1. Fetch Temperature History
+            // 1. Fetch History for the Graph
             const hist = await Promise.all(['temp-1', 'temp-2', 'temp-3'].map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data?hours=0.5`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
@@ -146,29 +145,39 @@
             tempChart.data.datasets[1].data = cleanHist[1].map(d => parseFloat(d.value));
             tempChart.data.datasets[2].data = cleanHist[2].map(d => parseFloat(d.value));
             tempChart.update();
+            addLog("INIT: Loaded 30 minutes of historical data.");
 
-            // 2. Fetch Latest States (Tunnel, Relay, IP)
-            const states = await Promise.all(['tunnel', 'relay-heater', 'ip-address', 'temp-1'].map(f => 
+            // 2. Fetch Latest States
+            const feedsToSync = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'signal'];
+            const states = await Promise.all(feedsToSync.map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data/last`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
                 }).then(res => res.json())
             ));
 
             updateSSHUI(states[0].value);
-            updateRelayUI(states[1].value);
-            document.getElementById("disp-ip").innerText = states[2].value;
-            document.getElementById("disp-temp").innerText = states[3].value + "°";
+            addLog(`INIT: SSH Status identified as [${states[0].value}]`);
             
-            addLog("SYSTEM: Boot sync successful.");
+            updateRelayUI(states[1].value);
+            addLog(`INIT: Relay Status identified as [${states[1].value}]`);
+            
+            document.getElementById("disp-ip").innerText = states[2].value;
+            addLog(`INIT: Current Cell IP is ${states[2].value}`);
+            
+            document.getElementById("disp-temp").innerText = states[3].value + "°";
+            addLog(`INIT: Signal Strength is ${states[4].value}%`);
+            
+            addLog("SYSTEM: Startup sync complete. Switching to live mode.", "#28a745");
         } catch (err) {
-            addLog("ERR: Initialization failed.");
+            addLog("ERR: Initialization failed. Check network/API keys.", "#ff4500");
         }
     }
 
     function connectMQTT() {
         client.connect({ useSSL: true, userName: AIO_USER, password: AIO_KEY, onSuccess: () => {
             client.subscribe(AIO_USER + "/feeds/#");
-            addLog("MQTT: Linked to Cloud.");
+            addLog("MQTT: Live WebSocket established.");
+            document.getElementById("status-display").innerText = "SYSTEM ACTIVE";
         }});
     }
 
@@ -177,6 +186,10 @@
         const topic = msg.destinationName;
         const now = new Date();
         const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
+        const feedName = topic.split('/').pop();
+
+        // Log EVERY incoming packet
+        addLog(`LIVE: ${feedName.toUpperCase()} updated to ${payload}`, "#888");
 
         document.getElementById("disp-time").innerText = now.toLocaleTimeString();
 
@@ -215,11 +228,20 @@
         tempChart.update('none');
     }
 
-    function addLog(msg) {
+    function addLog(msg, color = "#0f0") {
         const log = document.getElementById("command-log");
-        if (log.innerHTML.includes("Awaiting")) log.innerHTML = "";
-        let ts = new Date().toLocaleTimeString([], {hour12: false});
-        log.innerHTML = `<div style="border-bottom:1px solid #222; padding:2px;">[${ts}] ${msg}</div>` + log.innerHTML;
+        if (log.innerHTML.includes("Waiting for authorization")) log.innerHTML = "";
+        
+        const now = new Date();
+        const ts = now.toLocaleTimeString([], {hour12: false});
+
+        const entry = document.createElement("div");
+        entry.style.cssText = `border-bottom:1px solid #222; padding:4px; color:${color};`;
+        entry.innerHTML = `[${ts}] ${msg}`;
+        
+        log.insertBefore(entry, log.firstChild);
+        
+        if(log.childNodes.length > 60) log.removeChild(log.lastChild);
     }
 
     function clearLog() { document.getElementById("command-log").innerHTML = "> Log cleared..."; }
@@ -228,12 +250,14 @@
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = AIO_USER + "/feeds/" + (cmd === "SNAP" ? "camera" : "relay-heater");
         client.send(m); 
+        addLog(`COMMAND: Sending [${cmd}] to ${m.destinationName}`, "#007bff");
     }
     
     function pub_tunnel(cmd) { 
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = AIO_USER + "/feeds/tunnel";
         client.send(m); 
+        addLog(`COMMAND: Tunnel [${cmd}] requested`, "#007bff");
     }
 </script>
 </body>
