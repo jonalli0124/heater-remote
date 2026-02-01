@@ -26,16 +26,19 @@
         .btn-blue { background: #17a2b8; }
         .btn-ssh { font-size: 12px; padding: 10px; width: 48%; display: inline-block; background: #3a3a3a; color: #888; border: 1px solid #444; }
         .ssh-active { background: #17a2b8; color: white; box-shadow: 0 0 10px #17a2b8; border-color: #17a2b8; }
+        
+        /* Schedule Styles */
+        .timer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0; }
+        .timer-select { width: 100%; padding: 10px; border-radius: 8px; background: #000; color: #fff; border: 1px solid #444; }
+        .btn-timer-toggle { background: #3a3a3a; border: 1px solid #555; font-size: 14px; }
+
         #command-log { height: 150px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
         .clear-btn { font-size: 10px; background: #444; color: #ccc; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
         .chart-wrapper { width: 100%; height: 250px; margin-top: 10px; }
-        
-        /* Camera Container & Overlay */
         .cam-container { position: relative; width: 100%; display: none; margin-top: 5px; }
-        #cam-view { width: 100%; border-radius: 12px; border: 2px solid #444; display: block; animation: fadeIn 0.5s; }
+        #cam-view { width: 100%; border-radius: 12px; border: 2px solid #444; display: block; }
         #cam-ts { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-family: monospace; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -52,7 +55,6 @@
     <div id="app">
         <div class="card">
             <h3 style="color:#888; margin:0 0 15px 0;">SYSTEM STATUS</h3>
-            
             <div id="status-display" style="font-size:32px; font-weight:800; margin-bottom:15px;">BOOTING...</div>
             <div style="margin-bottom:15px;">
                 <span id="ind-ac" class="indicator"></span> <span style="font-size:12px; color:#888; margin-right:15px;">AC UNIT</span>
@@ -75,6 +77,38 @@
             </div>
         </div>
 
+        <div class="card" style="border: 1px solid #444;">
+            <h3 style="color:#888; margin:0 0 15px 0; font-size: 14px;">MASTER SCHEDULE</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div class="stat-lbl">Target Device</div>
+                <select id="timer-device" class="timer-select" style="width: 60%;">
+                    <option value="HEATER">HEATER (Relay HIGH)</option>
+                    <option value="AC">AC UNIT (Relay LOW)</option>
+                </select>
+            </div>
+            <div class="timer-grid">
+                <div>
+                    <div class="stat-lbl">Start Time</div>
+                    <select id="timer-start" class="timer-select">
+                        <option value="0000">12 AM</option><option value="0400">4 AM</option>
+                        <option value="0800">8 AM</option><option value="1200">12 PM</option>
+                        <option value="1600">4 PM</option><option value="2000">8 PM</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="stat-lbl">End Time</div>
+                    <select id="timer-end" class="timer-select">
+                        <option value="0400">4 AM</option><option value="0800">8 AM</option>
+                        <option value="1200">12 PM</option><option value="1600">4 PM</option>
+                        <option value="2000">8 PM</option><option value="2359">11:59 PM</option>
+                    </select>
+                </div>
+            </div>
+            <button id="timer-toggle-btn" class="btn btn-timer-toggle" onclick="toggleTimer()">
+                OFF - CLICK TO ENABLE AUTO
+            </button>
+        </div>
+
         <div class="card" id="cam-card" style="display:none; padding:10px;">
              <h3 style="color:#888; margin:5px 0 10px 0; font-size: 14px;">LIVE CAMERA FEED</h3>
              <div class="cam-container" id="cam-box" style="display:block;">
@@ -84,10 +118,8 @@
         </div>
 
         <div class="card">
-            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TREND (1.5 Hours)</h3>
-            <div class="chart-wrapper">
-                <canvas id="tempChart"></canvas>
-            </div>
+            <h3 style="color:#888; margin:0 0 5px 0; font-size: 14px;">TEMPERATURE TREND</h3>
+            <div class="chart-wrapper"><canvas id="tempChart"></canvas></div>
         </div>
 
         <div class="card">
@@ -106,6 +138,8 @@
     const PORT = 443; 
 
     let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
+    let timerEnabled = false;
+    let tunnelLock = false;
 
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
@@ -119,8 +153,7 @@
             ]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             scales: {
                 x: { grid: { color: '#333' }, ticks: { color: '#888', autoSkip: true, maxTicksLimit: 6 } },
                 y: { grid: { color: '#333' }, ticks: { color: '#888' } }
@@ -136,7 +169,6 @@
             document.getElementById("app").style.filter = "none";
             document.getElementById("app").style.opacity = "1";
             document.getElementById("app").style.pointerEvents = "auto";
-            
             await initSystem(); 
             connectMQTT();
         } else { document.getElementById("err-msg").style.display = "block"; }
@@ -146,7 +178,7 @@
         addLog("SYSTEM: Synchronizing states...", "#007bff");
         try {
             const hist = await Promise.all(['temp-1', 'temp-2', 'temp-3'].map(f => 
-                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data?hours=0.5`, {
+                fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data?hours=1.5`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
                 }).then(res => res.json())
             ));
@@ -157,7 +189,7 @@
             tempChart.data.datasets[2].data = cleanHist[2].map(d => parseFloat(d.value));
             tempChart.update();
 
-            const feeds = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'camera'];
+            const feeds = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'camera', 'timer'];
             const states = await Promise.all(feeds.map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data/last`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
@@ -168,11 +200,14 @@
             updateRelayUI(states[1].value);
             document.getElementById("disp-ip").innerText = states[2].value;
             document.getElementById("disp-temp").innerText = states[3].value + "°";
+            if (states[4].value.length > 500) renderImage(states[4].value, new Date(states[4].created_at));
             
-            if (states[4].value.length > 500) {
-                renderImage(states[4].value, new Date(states[4].created_at));
+            if(states[5].value.split(':').pop() === "1") {
+                timerEnabled = true;
+                const btn = document.getElementById("timer-toggle-btn");
+                btn.innerText = "AUTO-SCHEDULE ACTIVE";
+                btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
             }
-
             addLog("SYSTEM: Startup sync complete.", "#28a745");
         } catch (err) { addLog("ERR: Initialization failed.", "#ff4500"); }
     }
@@ -181,12 +216,9 @@
         const img = document.getElementById("cam-view");
         const card = document.getElementById("cam-card");
         const ts = document.getElementById("cam-ts");
-        
-        // Clean up string: Strip quotes and trim whitespace
         let cleanBase64 = base64.replace(/^"|"$/g, '').trim();
-
         img.src = "data:image/jpeg;base64," + cleanBase64;
-        card.style.display = "block"; // Show the whole card when photo arrives
+        card.style.display = "block";
         ts.innerText = "CAPTURED: " + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     }
 
@@ -204,7 +236,6 @@
         const now = new Date();
         const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
         const feedName = topic.split('/').pop();
-
         let cleanPayload = payload.replace(/^"|"$/g, '').trim();
 
         if (feedName === "camera" && (cleanPayload.startsWith('/9j/') || cleanPayload.length > 500)) {
@@ -223,9 +254,20 @@
         }
         else if(topic.endsWith("temp-2")) updateLiveChart(1, timeLabel, cleanPayload);
         else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, cleanPayload);
-        else if(topic.endsWith("relay-heater")) updateRelayUI(cleanPayload);
+        else if(topic.endsWith("relay-heater")) {
+            updateRelayUI(cleanPayload);
+            // Sync Timer UI: If manual action happened on Pi, kill Timer UI here
+            if (cleanPayload === "OFF") resetTimerUI();
+        }
         else if(topic.endsWith("tunnel")) updateSSHUI(cleanPayload);
     };
+
+    function resetTimerUI() {
+        timerEnabled = false;
+        const btn = document.getElementById("timer-toggle-btn");
+        btn.innerText = "OFF - CLICK TO ENABLE AUTO";
+        btn.style.background = "#3a3a3a";
+    }
 
     function updateRelayUI(val) {
         const isHeater = (val === "ON");
@@ -264,6 +306,7 @@
     function clearLog() { document.getElementById("command-log").innerHTML = "> Log cleared..."; }
 
     function pub(cmd) { 
+        if (timerEnabled && (cmd === "ON" || cmd === "OFF")) resetTimerUI();
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = AIO_USER + "/feeds/" + (cmd === "SNAP" ? "camera" : "relay-heater");
         client.send(m); 
@@ -271,10 +314,34 @@
     }
     
     function pub_tunnel(cmd) { 
+        if(tunnelLock) return;
+        tunnelLock = true;
         let m = new Paho.MQTT.Message(cmd);
         m.destinationName = AIO_USER + "/feeds/tunnel";
         client.send(m); 
-        addLog(`COMMAND: Tunnel [${cmd}]`, "#007bff");
+        addLog(`COMMAND: Tunnel [${cmd}]`, "#17a2b8");
+        setTimeout(() => { tunnelLock = false; }, 2000); 
+    }
+
+    function toggleTimer() {
+        timerEnabled = !timerEnabled;
+        const btn = document.getElementById("timer-toggle-btn");
+        if (timerEnabled) {
+            btn.innerText = "AUTO-SCHEDULE ACTIVE";
+            btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
+        } else {
+            btn.innerText = "OFF - CLICK TO ENABLE AUTO";
+            btn.style.background = "#3a3a3a";
+        }
+        const dev = document.getElementById("timer-device").value;
+        const start = document.getElementById("timer-start").value;
+        const end = document.getElementById("timer-end").value;
+        const status = timerEnabled ? "1" : "0";
+        const payload = `${dev}:${start}:${end}:${status}`;
+        let m = new Paho.MQTT.Message(payload);
+        m.destinationName = AIO_USER + "/feeds/timer";
+        client.send(m);
+        addLog(`SCHEDULE: Sent [${payload}]`, "#007bff");
     }
 </script>
 </body>
