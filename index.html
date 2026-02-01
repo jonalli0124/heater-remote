@@ -29,8 +29,7 @@
         
         /* Schedule Styles */
         .timer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0; }
-        .timer-select { width: 100%; padding: 10px; border-radius: 8px; background: #000; color: #fff; border: 1px solid #444; }
-        .btn-timer-toggle { background: #3a3a3a; border: 1px solid #555; font-size: 14px; }
+        .timer-select { width: 100%; padding: 10px; border-radius: 8px; background: #000; color: #fff; border: 1px solid #444; height: 45px; font-size: 16px; }
 
         #command-log { height: 150px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
@@ -86,24 +85,45 @@
                     <option value="AC">AC UNIT (Relay LOW)</option>
                 </select>
             </div>
+            
             <div class="timer-grid">
                 <div>
                     <div class="stat-lbl">Start Time</div>
                     <select id="timer-start" class="timer-select">
-                        <option value="0000">12 AM</option><option value="0400">4 AM</option>
-                        <option value="0800">8 AM</option><option value="1200">12 PM</option>
-                        <option value="1600">4 PM</option><option value="2000">8 PM</option>
+                        <option value="0000">12 AM</option><option value="0100">1 AM</option>
+                        <option value="0200">2 AM</option><option value="0300">3 AM</option>
+                        <option value="0400">4 AM</option><option value="0500">5 AM</option>
+                        <option value="0600">6 AM</option><option value="0700">7 AM</option>
+                        <option value="0800">8 AM</option><option value="0900">9 AM</option>
+                        <option value="1000">10 AM</option><option value="1100">11 AM</option>
+                        <option value="1200">12 PM</option><option value="1300">1 PM</option>
+                        <option value="1400">2 PM</option><option value="1500">3 PM</option>
+                        <option value="1600">4 PM</option><option value="1700">5 PM</option>
+                        <option value="1800">6 PM</option><option value="1900">7 PM</option>
+                        <option value="2000">8 PM</option><option value="2100">9 PM</option>
+                        <option value="2200">10 PM</option><option value="2300">11 PM</option>
                     </select>
                 </div>
+
                 <div>
                     <div class="stat-lbl">End Time</div>
                     <select id="timer-end" class="timer-select">
-                        <option value="0400">4 AM</option><option value="0800">8 AM</option>
-                        <option value="1200">12 PM</option><option value="1600">4 PM</option>
-                        <option value="2000">8 PM</option><option value="2359">11:59 PM</option>
+                        <option value="0100">1 AM</option><option value="0200">2 AM</option>
+                        <option value="0300">3 AM</option><option value="0400">4 AM</option>
+                        <option value="0500">5 AM</option><option value="0600">6 AM</option>
+                        <option value="0700">7 AM</option><option value="0800">8 AM</option>
+                        <option value="0900">9 AM</option><option value="1000">10 AM</option>
+                        <option value="1100">11 AM</option><option value="1200">12 PM</option>
+                        <option value="1300">1 PM</option><option value="1400">2 PM</option>
+                        <option value="1500">3 PM</option><option value="1600">4 PM</option>
+                        <option value="1700">5 PM</option><option value="1800">6 PM</option>
+                        <option value="1900">7 PM</option><option value="2000">8 PM</option>
+                        <option value="2100">9 PM</option><option value="2200">10 PM</option>
+                        <option value="2300">11 PM</option><option value="2359">Midnight</option>
                     </select>
                 </div>
             </div>
+
             <button id="timer-toggle-btn" class="btn btn-timer-toggle" onclick="toggleTimer()">
                 OFF - CLICK TO ENABLE AUTO
             </button>
@@ -256,7 +276,6 @@
         else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, cleanPayload);
         else if(topic.endsWith("relay-heater")) {
             updateRelayUI(cleanPayload);
-            // Sync Timer UI: If manual action happened on Pi, kill Timer UI here
             if (cleanPayload === "OFF") resetTimerUI();
         }
         else if(topic.endsWith("tunnel")) updateSSHUI(cleanPayload);
