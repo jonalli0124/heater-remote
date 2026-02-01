@@ -30,6 +30,7 @@
         /* Schedule Styles */
         .timer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0; }
         .timer-select { width: 100%; padding: 10px; border-radius: 8px; background: #000; color: #fff; border: 1px solid #444; height: 45px; font-size: 16px; }
+        .btn-timer-toggle { background: #3a3a3a; border: 1px solid #555; font-size: 14px; }
 
         #command-log { height: 150px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; text-align: left; border-radius: 10px; font-size: 12px; border: 1px solid #333; }
         .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
@@ -90,36 +91,28 @@
                 <div>
                     <div class="stat-lbl">Start Time</div>
                     <select id="timer-start" class="timer-select">
-                        <option value="0000">12 AM</option><option value="0100">1 AM</option>
-                        <option value="0200">2 AM</option><option value="0300">3 AM</option>
-                        <option value="0400">4 AM</option><option value="0500">5 AM</option>
-                        <option value="0600">6 AM</option><option value="0700">7 AM</option>
-                        <option value="0800">8 AM</option><option value="0900">9 AM</option>
-                        <option value="1000">10 AM</option><option value="1100">11 AM</option>
-                        <option value="1200">12 PM</option><option value="1300">1 PM</option>
-                        <option value="1400">2 PM</option><option value="1500">3 PM</option>
-                        <option value="1600">4 PM</option><option value="1700">5 PM</option>
-                        <option value="1800">6 PM</option><option value="1900">7 PM</option>
-                        <option value="2000">8 PM</option><option value="2100">9 PM</option>
-                        <option value="2200">10 PM</option><option value="2300">11 PM</option>
+                        <option value="0000">12 AM</option><option value="0100">1 AM</option><option value="0200">2 AM</option>
+                        <option value="0300">3 AM</option><option value="0400">4 AM</option><option value="0500">5 AM</option>
+                        <option value="0600">6 AM</option><option value="0700">7 AM</option><option value="0800">8 AM</option>
+                        <option value="0900">9 AM</option><option value="1000">10 AM</option><option value="1100">11 AM</option>
+                        <option value="1200">12 PM</option><option value="1300">1 PM</option><option value="1400">2 PM</option>
+                        <option value="1500">3 PM</option><option value="1600">4 PM</option><option value="1700">5 PM</option>
+                        <option value="1800">6 PM</option><option value="1900">7 PM</option><option value="2000">8 PM</option>
+                        <option value="2100">9 PM</option><option value="2200">10 PM</option><option value="2300">11 PM</option>
                     </select>
                 </div>
 
                 <div>
                     <div class="stat-lbl">End Time</div>
                     <select id="timer-end" class="timer-select">
-                        <option value="0100">1 AM</option><option value="0200">2 AM</option>
-                        <option value="0300">3 AM</option><option value="0400">4 AM</option>
-                        <option value="0500">5 AM</option><option value="0600">6 AM</option>
-                        <option value="0700">7 AM</option><option value="0800">8 AM</option>
-                        <option value="0900">9 AM</option><option value="1000">10 AM</option>
-                        <option value="1100">11 AM</option><option value="1200">12 PM</option>
-                        <option value="1300">1 PM</option><option value="1400">2 PM</option>
-                        <option value="1500">3 PM</option><option value="1600">4 PM</option>
-                        <option value="1700">5 PM</option><option value="1800">6 PM</option>
-                        <option value="1900">7 PM</option><option value="2000">8 PM</option>
-                        <option value="2100">9 PM</option><option value="2200">10 PM</option>
-                        <option value="2300">11 PM</option><option value="2359">Midnight</option>
+                        <option value="0100">1 AM</option><option value="0200">2 AM</option><option value="0300">3 AM</option>
+                        <option value="0400">4 AM</option><option value="0500">5 AM</option><option value="0600">6 AM</option>
+                        <option value="0700">7 AM</option><option value="0800">8 AM</option><option value="0900">9 AM</option>
+                        <option value="1000">10 AM</option><option value="1100">11 AM</option><option value="1200">12 PM</option>
+                        <option value="1300">1 PM</option><option value="1400">2 PM</option><option value="1500">3 PM</option>
+                        <option value="1600">4 PM</option><option value="1700">5 PM</option><option value="1800">6 PM</option>
+                        <option value="1900">7 PM</option><option value="2000">8 PM</option><option value="2100">9 PM</option>
+                        <option value="2200">10 PM</option><option value="2300">11 PM</option><option value="2359">Midnight</option>
                     </select>
                 </div>
             </div>
@@ -216,17 +209,24 @@
                 }).then(res => res.json())
             ));
 
-            updateSSHUI(states[0].value);
-            updateRelayUI(states[1].value);
-            document.getElementById("disp-ip").innerText = states[2].value;
-            document.getElementById("disp-temp").innerText = states[3].value + "°";
+            updateSSHUI(states[0].value.replace(/"/g, ''));
+            updateRelayUI(states[1].value.replace(/"/g, ''));
+            document.getElementById("disp-ip").innerText = states[2].value.replace(/"/g, '');
+            document.getElementById("disp-temp").innerText = states[3].value.replace(/"/g, '') + "°";
             if (states[4].value.length > 500) renderImage(states[4].value, new Date(states[4].created_at));
             
-            if(states[5].value.split(':').pop() === "1") {
-                timerEnabled = true;
-                const btn = document.getElementById("timer-toggle-btn");
-                btn.innerText = "AUTO-SCHEDULE ACTIVE";
-                btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
+            const timerRaw = states[5].value.replace(/"/g, '');
+            const timerParts = timerRaw.split(':');
+            if(timerParts.length === 4) {
+                document.getElementById("timer-device").value = timerParts[0];
+                document.getElementById("timer-start").value = timerParts[1];
+                document.getElementById("timer-end").value = timerParts[2];
+                if(timerParts[3] === "1") {
+                    timerEnabled = true;
+                    const btn = document.getElementById("timer-toggle-btn");
+                    btn.innerText = "AUTO-SCHEDULE ACTIVE";
+                    btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
+                }
             }
             addLog("SYSTEM: Startup sync complete.", "#28a745");
         } catch (err) { addLog("ERR: Initialization failed.", "#ff4500"); }
@@ -260,12 +260,8 @@
 
         if (feedName === "camera" && (cleanPayload.startsWith('/9j/') || cleanPayload.length > 500)) {
             renderImage(cleanPayload, now);
-            addLog("📸 PHOTO: Live capture received.", "#17a2b8");
             return;
         }
-
-        addLog(`LIVE: ${feedName.toUpperCase()} -> ${cleanPayload}`, "#888");
-        document.getElementById("disp-time").innerText = now.toLocaleTimeString();
 
         if(topic.endsWith("ip-address")) document.getElementById("disp-ip").innerText = cleanPayload;
         else if(topic.endsWith("temp-1")) {
@@ -319,7 +315,6 @@
         entry.style.cssText = `border-bottom:1px solid #222; padding:4px; color:${color};`;
         entry.innerHTML = `[${new Date().toLocaleTimeString([], {hour12: false})}] ${msg}`;
         log.insertBefore(entry, log.firstChild);
-        if(log.childNodes.length > 60) log.removeChild(log.lastChild);
     }
 
     function clearLog() { document.getElementById("command-log").innerHTML = "> Log cleared..."; }
