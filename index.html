@@ -79,11 +79,20 @@
 
         <div class="card" style="border: 1px solid #444;">
             <h3 style="color:#888; margin:0 0 15px 0; font-size: 14px;">MASTER SCHEDULE</h3>
+            
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <div class="stat-lbl">Target Device</div>
                 <select id="timer-device" class="timer-select" style="width: 60%;">
                     <option value="HEATER">HEATER (Relay HIGH)</option>
                     <option value="AC">AC UNIT (Relay LOW)</option>
+                </select>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div class="stat-lbl">Window Mode</div>
+                <select id="timer-mode" class="timer-select" style="width: 60%;">
+                    <option value="1">ON inside window</option>
+                    <option value="0">OFF inside window</option>
                 </select>
             </div>
             
@@ -215,12 +224,19 @@
             document.getElementById("disp-temp").innerText = states[3].value.replace(/"/g, '') + "°";
             if (states[4].value.length > 500) renderImage(states[4].value, new Date(states[4].created_at));
             
+            // SMART PARSING: Handle 4-part or 5-part strings
             const timerRaw = states[5].value.replace(/"/g, '');
             const timerParts = timerRaw.split(':');
-            if(timerParts.length === 4) {
+            if(timerParts.length >= 4) {
                 document.getElementById("timer-device").value = timerParts[0];
                 document.getElementById("timer-start").value = timerParts[1];
                 document.getElementById("timer-end").value = timerParts[2];
+                
+                // Set mode if 5th part exists
+                if(timerParts.length === 5) {
+                    document.getElementById("timer-mode").value = timerParts[4];
+                }
+
                 if(timerParts[3] === "1") {
                     timerEnabled = true;
                     const btn = document.getElementById("timer-toggle-btn");
@@ -272,9 +288,24 @@
         else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, cleanPayload);
         else if(topic.endsWith("relay-heater")) {
             updateRelayUI(cleanPayload);
-            if (cleanPayload === "OFF") resetTimerUI();
+            // Optional: If you want manual turns to disable the UI schedule button:
+            // if (cleanPayload === "OFF" && timerEnabled) resetTimerUI();
         }
         else if(topic.endsWith("tunnel")) updateSSHUI(cleanPayload);
+        
+        // Sync Dashboard with Schedule changes from Pi
+        else if(topic.endsWith("timer")) {
+            const parts = cleanPayload.split(':');
+            if(parts.length >= 4) {
+                if(parts[3] === "0") resetTimerUI();
+                else {
+                    timerEnabled = true;
+                    const btn = document.getElementById("timer-toggle-btn");
+                    btn.innerText = "AUTO-SCHEDULE ACTIVE";
+                    btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
+                }
+            }
+        }
     };
 
     function resetTimerUI() {
@@ -340,6 +371,7 @@
     function toggleTimer() {
         timerEnabled = !timerEnabled;
         const btn = document.getElementById("timer-toggle-btn");
+        
         if (timerEnabled) {
             btn.innerText = "AUTO-SCHEDULE ACTIVE";
             btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
@@ -347,11 +379,16 @@
             btn.innerText = "OFF - CLICK TO ENABLE AUTO";
             btn.style.background = "#3a3a3a";
         }
-        const dev = document.getElementById("timer-device").value;
+
+        const dev   = document.getElementById("timer-device").value;
         const start = document.getElementById("timer-start").value;
-        const end = document.getElementById("timer-end").value;
+        const end   = document.getElementById("timer-end").value;
+        const mode  = document.getElementById("timer-mode").value; // Grab the new mode
         const status = timerEnabled ? "1" : "0";
-        const payload = `${dev}:${start}:${end}:${status}`;
+
+        // Build the 5-part payload: DEVICE:START:STOP:ENABLED:MODE
+        const payload = `${dev}:${start}:${end}:${status}:${mode}`;
+        
         let m = new Paho.MQTT.Message(payload);
         m.destinationName = AIO_USER + "/feeds/timer";
         client.send(m);
