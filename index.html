@@ -276,50 +276,57 @@ async function initSystem() {
     }
 
 client.onMessageArrived = (msg) => {
-        let payload = msg.payloadString;
-        const topic = msg.destinationName;
-        const now = new Date();
-        const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
-        const feedName = topic.split('/').pop();
-        let cleanPayload = payload.replace(/^"|"$/g, '').trim();
+    let payload = msg.payloadString;
+    const topic = msg.destinationName;
+    const now = new Date();
+    const timeLabel = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
+    const feedName = topic.split('/').pop();
+    let cleanPayload = payload.replace(/^"|"$/g, '').trim();
 
-        if (feedName === "camera" && (cleanPayload.startsWith('/9j/') || cleanPayload.length > 500)) {
-            renderImage(cleanPayload, now);
-            return;
-        }
+    // 1. ADD THE LOG FIRST (So everything shows up)
+    // We skip logging the massive Camera base64 string to keep the log readable
+    if (feedName !== "camera") {
+        addLog(`INCOMING: [${feedName.toUpperCase()}] -> ${cleanPayload}`, "#888");
+    } else {
+        addLog(`INCOMING: [CAMERA] -> New Frame Received`, "#17a2b8");
+    }
 
-        // --- ADD THIS SECTION ---
-        if(feedName === "signal") {
-            document.getElementById("disp-time").innerText = cleanPayload;
-            return;
-        }
-        // -------------------------
+    // 2. Process specific UI updates
+    if (feedName === "camera" && (cleanPayload.startsWith('/9j/') || cleanPayload.length > 500)) {
+        renderImage(cleanPayload, now);
+        return; 
+    }
 
-        if(topic.endsWith("ip-address")) document.getElementById("disp-ip").innerText = cleanPayload;
-        else if(topic.endsWith("temp-1")) {
-            document.getElementById("disp-temp").innerText = cleanPayload + "°";
-            updateLiveChart(0, timeLabel, cleanPayload);
-        }
-        else if(topic.endsWith("temp-2")) updateLiveChart(1, timeLabel, cleanPayload);
-        else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, cleanPayload);
-        else if(topic.endsWith("relay-heater")) {
-            updateRelayUI(cleanPayload);
-        }
-        else if(topic.endsWith("tunnel")) updateSSHUI(cleanPayload);
-        
-        else if(topic.endsWith("timer")) {
-            const parts = cleanPayload.split(':');
-            if(parts.length >= 4) {
-                if(parts[3] === "0") resetTimerUI();
-                else {
-                    timerEnabled = true;
-                    const btn = document.getElementById("timer-toggle-btn");
-                    btn.innerText = "AUTO-SCHEDULE ACTIVE";
-                    btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
-                }
+    if(feedName === "signal") {
+        document.getElementById("disp-time").innerText = cleanPayload;
+        return;
+    }
+
+    if(topic.endsWith("ip-address")) document.getElementById("disp-ip").innerText = cleanPayload;
+    else if(topic.endsWith("temp-1")) {
+        document.getElementById("disp-temp").innerText = cleanPayload + "°";
+        updateLiveChart(0, timeLabel, cleanPayload);
+    }
+    else if(topic.endsWith("temp-2")) updateLiveChart(1, timeLabel, cleanPayload);
+    else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, cleanPayload);
+    else if(topic.endsWith("relay-heater")) {
+        updateRelayUI(cleanPayload);
+    }
+    else if(topic.endsWith("tunnel")) updateSSHUI(cleanPayload);
+    
+    else if(topic.endsWith("timer")) {
+        const parts = cleanPayload.split(':');
+        if(parts.length >= 4) {
+            if(parts[3] === "0") resetTimerUI();
+            else {
+                timerEnabled = true;
+                const btn = document.getElementById("timer-toggle-btn");
+                btn.innerText = "AUTO-SCHEDULE ACTIVE";
+                btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
             }
         }
-    };
+    }
+};
 
     function resetTimerUI() {
         timerEnabled = false;
