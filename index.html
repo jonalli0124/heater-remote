@@ -196,9 +196,10 @@
         } else { document.getElementById("err-msg").style.display = "block"; }
     }
 
-    async function initSystem() {
+async function initSystem() {
         addLog("SYSTEM: Synchronizing states...", "#007bff");
         try {
+            // Chart data sync
             const hist = await Promise.all(['temp-1', 'temp-2', 'temp-3'].map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data?hours=1.5`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
@@ -211,31 +212,35 @@
             tempChart.data.datasets[2].data = cleanHist[2].map(d => parseFloat(d.value));
             tempChart.update();
 
-            const feeds = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'camera', 'timer'];
+            // 1. ADD 'signal' TO THE END OF THIS ARRAY
+            const feeds = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'camera', 'timer', 'signal'];
             const states = await Promise.all(feeds.map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data/last`, {
                     headers: { 'X-AIO-Key': AIO_KEY }
                 }).then(res => res.json())
             ));
 
+            // UI Updates
             updateSSHUI(states[0].value.replace(/"/g, ''));
             updateRelayUI(states[1].value.replace(/"/g, ''));
             document.getElementById("disp-ip").innerText = states[2].value.replace(/"/g, '');
             document.getElementById("disp-temp").innerText = states[3].value.replace(/"/g, '') + "°";
-            if (states[4].value.length > 500) renderImage(states[4].value, new Date(states[4].created_at));
             
-            // SMART PARSING: Handle 4-part or 5-part strings
+            if (states[4].value.length > 500) renderImage(states[4].value, new Date(states[4].created_at));
+
+            // 2. FETCH THE HEARTBEAT (SIGNAL) VALUE (index 6 in the array)
+            if (states[6] && states[6].value) {
+                document.getElementById("disp-time").innerText = states[6].value.replace(/"/g, '');
+            }
+            
+            // Timer parsing (states[5])
             const timerRaw = states[5].value.replace(/"/g, '');
             const timerParts = timerRaw.split(':');
             if(timerParts.length >= 4) {
                 document.getElementById("timer-device").value = timerParts[0];
                 document.getElementById("timer-start").value = timerParts[1];
                 document.getElementById("timer-end").value = timerParts[2];
-                
-                // Set mode if 5th part exists
-                if(timerParts.length === 5) {
-                    document.getElementById("timer-mode").value = timerParts[4];
-                }
+                if(timerParts.length === 5) document.getElementById("timer-mode").value = timerParts[4];
 
                 if(timerParts[3] === "1") {
                     timerEnabled = true;
@@ -244,8 +249,12 @@
                     btn.style.background = "linear-gradient(135deg, #007bff, #0056b3)";
                 }
             }
+
             addLog("SYSTEM: Startup sync complete.", "#28a745");
-        } catch (err) { addLog("ERR: Initialization failed.", "#ff4500"); }
+        } catch (err) { 
+            console.error(err);
+            addLog("ERR: Initialization failed.", "#ff4500"); 
+        }
     }
 
     function renderImage(base64, dateObj) {
@@ -266,7 +275,7 @@
         }});
     }
 
-    client.onMessageArrived = (msg) => {
+client.onMessageArrived = (msg) => {
         let payload = msg.payloadString;
         const topic = msg.destinationName;
         const now = new Date();
@@ -279,6 +288,13 @@
             return;
         }
 
+        // --- ADD THIS SECTION ---
+        if(feedName === "signal") {
+            document.getElementById("disp-time").innerText = cleanPayload;
+            return;
+        }
+        // -------------------------
+
         if(topic.endsWith("ip-address")) document.getElementById("disp-ip").innerText = cleanPayload;
         else if(topic.endsWith("temp-1")) {
             document.getElementById("disp-temp").innerText = cleanPayload + "°";
@@ -288,12 +304,9 @@
         else if(topic.endsWith("temp-3")) updateLiveChart(2, timeLabel, cleanPayload);
         else if(topic.endsWith("relay-heater")) {
             updateRelayUI(cleanPayload);
-            // Optional: If you want manual turns to disable the UI schedule button:
-            // if (cleanPayload === "OFF" && timerEnabled) resetTimerUI();
         }
         else if(topic.endsWith("tunnel")) updateSSHUI(cleanPayload);
         
-        // Sync Dashboard with Schedule changes from Pi
         else if(topic.endsWith("timer")) {
             const parts = cleanPayload.split(':');
             if(parts.length >= 4) {
