@@ -1,4 +1,3 @@
-  GNU nano 8.4                                                                                                                                                                                                                           miles_daemon.py                                                                                                                                                                                                                                     
 import time
 import subprocess
 import serial
@@ -6,6 +5,7 @@ import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
 import base64
 import os
+import glob
 
 # --- Configuration ---
 AIO_USERNAME = "Jonalli0124"
@@ -17,13 +17,18 @@ T_TUNNEL = f"{AIO_USERNAME}/feeds/tunnel"
 T_CAMERA = f"{AIO_USERNAME}/feeds/camera"
 T_IP     = f"{AIO_USERNAME}/feeds/ip-address"
 T_SIGNAL = f"{AIO_USERNAME}/feeds/signal"
-T_TEMP1  = f"{AIO_USERNAME}/feeds/temp-1"
-T_TEMP2  = f"{AIO_USERNAME}/feeds/temp-2"
-T_TEMP3  = f"{AIO_USERNAME}/feeds/temp-3"
+T_CPU    = f"{AIO_USERNAME}/feeds/temp-1" # CPU
+T_TEMP1  = f"{AIO_USERNAME}/feeds/temp-2" # Ambient
+T_TEMP2  = f"{AIO_USERNAME}/feeds/temp-3" # Heater
+T_TIMER  = f"{AIO_USERNAME}/feeds/timer"  # 10th Feed for Scheduling
 
 # Timing
 HEARTBEAT_INTERVAL = 60          # 1 minute
 PHOTO_INTERVAL = 4 * 60 * 60     # 4 hours
+
+# Schedule State (Default: All OFF)
+# Format: DEVICE, START, STOP, ENABLED
+current_sched = {"device": "HEATER", "start": 0, "stop": 0, "enabled": 0, "mode": 1}
 
 # GPIO Setup
 RELAY_PIN = 17
@@ -31,50 +36,97 @@ GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(RELAY_PIN, GPIO.OUT)
 
-# --- Helpers ---
-def get_ssh_status():
-    """Checks if cloudflared service is actually running."""
+last_relay_state = None
+
+# --- Hardware Helpers ---
+
+def initialize_cellular():
+    print("🚀 Initializing Cellular Modem...")
     try:
-        status = subprocess.run(["systemctl", "is-active", "cloudflared"], capture_output=True, text=True)
-        return "ON" if status.stdout.strip() == "active" else "OFF"
-    except: return "OFF"
+        # 1. Reset interface
+        subprocess.run("sudo ip link set wwan0 down", shell=True)
+        subprocess.run("echo 'Y' | sudo tee /sys/class/net/wwan0/qmi/raw_ip", shell=True)
+        subprocess.run("sudo ip link set wwan0 up", shell=True)
+
+        # 2. Raw Serial Dial (Avoids shell escaping issues)
+        ser = serial.Serial("/dev/ttyUSB2", 115200, timeout=1)
+        ser.write(b'AT+CGDCONT=1,"IP","soracom.io"\r\n')
+        time.sleep(1)
+        ser.write(b'AT$QCRMCALL=1,1\r\n')
+        time.sleep(2)
+        ser.close()
+
+        # 3. Request IP Address
+        print("🛰 Requesting IP address...")
+        subprocess.run("sudo udhcpc -i wwan0 -n -T 5 -q", shell=True)
+        print("✅ Cellular Logic Complete.")
+    except Exception as e:
+        print(f"❌ Cellular Error: {e}")
+
+def get_ds18b20_temps():
+    """Reads 1-Wire sensors and returns Fahrenheit values."""
+    temps = []
+    device_folders = glob.glob('/sys/bus/w1/devices/28*')
+    for folder in device_folders:
+        try:
+            with open(folder + '/w1_slave', 'r') as f:
+                lines = f.readlines()
+                if lines[0].strip().endswith('YES'):
+                    msg = lines[1].find('t=')
+                    if msg != -1:
+                        temp_c = float(lines[1][msg+2:]) / 1000.0
+                        temps.append(round((temp_c * 9/5) + 32, 2))
+        except: continue
+    while len(temps) < 2: temps.append(0.0)
+    return temps[:2]
 
 def capture_and_send_photo(client):
-    print("📸 Capturing image (480p Low-Data)...")
+    img_path = "/dev/shm/snap.jpg"
     try:
-        img_path = "/dev/shm/snap.jpg"
-        # Optimized for cellular: 640x480 at 15% quality
-        subprocess.run(["libcamera-jpeg", "-o", img_path, "-t", "500", "--width", "640", "--height", "480", "--quality", "15", "--immediate"])
+        # Kill any hung camera processes aggressively
+        subprocess.run("sudo pkill -9 rpicam", shell=True, stderr=subprocess.DEVNULL)
+        time.sleep(1) # Give the hardware a second to reset
+
+        # Use a shell=False and set a strict timeout
+        subprocess.run([
+            "rpicam-jpeg", "-o", img_path, "-t", "1000",
+            "--width", "800", "--height", "600",
+            "--quality", "25", "--nopreview"
+        ], check=True, timeout=10) # 10 seconds max!
 
         if os.path.exists(img_path):
             with open(img_path, "rb") as f:
                 encoded = base64.b64encode(f.read()).decode('utf-8')
-
-            if len(encoded) < 100000: # Adafruit's 100KB limit
-                client.publish(T_CAMERA, encoded)
-                print(f"📤 Photo Sent: {len(encoded)} bytes")
-            else:
-                print("⚠️ Error: Image too large for Adafruit IO")
+            client.publish(T_CAMERA, encoded)
             os.remove(img_path)
+            print("📤 Photo Sent")
     except Exception as e:
-        print(f"❌ Camera Error: {e}")
+        print(f"❌ Camera failed but script will continue: {e}")
 
-def get_cellular_signal():
+def initialize_cellular():
+    print("🚀 Initializing Cellular Modem...")
     try:
-        ser = serial.Serial("/dev/ttyUSB2", 115200, timeout=1)
-        ser.write(b'AT+CSQ\r\n')
-        response = ser.read(100).decode()
-        ser.close()
-        if "+CSQ:" in response:
-            csq = int(response.split(":")[1].split(",")[0].strip())
-            return int((csq / 31) * 100) if csq != 99 else 0
-        return 0
-    except: return 0
+        # ... (keep your existing reset and serial dial code) ...
+
+        # 3. Request IP Address
+        print("🛰 Requesting IP address...")
+        subprocess.run("sudo udhcpc -i wwan0 -n -T 5 -q", shell=True)
+        
+        # --- ADD THIS LINE HERE ---
+        subprocess.run("echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf", shell=True)
+        # --------------------------
+
+        print("✅ Cellular Logic Complete.")
+    except Exception as e:
+        print(f"❌ Cellular Error: {e}")
 
 def get_ip_address():
     try:
-        return subprocess.check_output(["hostname", "-I"]).decode().split()[0]
-    except: return "127.0.0.1"
+        output = subprocess.check_output("ip route get 8.8.8.8", shell=True).decode()
+        parts = output.split()
+        if "src" in parts: return parts[parts.index("src") + 1]
+        return "No Route"
+    except: return "Offline"
 
 def get_cpu_temp():
     try:
@@ -83,69 +135,177 @@ def get_cpu_temp():
     except: return 0.0
 
 # --- MQTT CALLBACKS ---
+
 def on_connect(client, userdata, flags, rc, properties=None):
     print(f"✅ Connected to Adafruit (Code: {rc})")
-    for t in [T_HEATER, T_TUNNEL, T_CAMERA]: 
+    for t in [T_HEATER, T_TUNNEL, T_CAMERA, T_TIMER]:
         client.subscribe(t)
     
-    # INITIAL SYNC: Tell the cloud exactly what the hardware is doing right now
-    client.publish(T_IP, get_ip_address(), retain=True)
-    client.publish(T_HEATER, "ON" if GPIO.input(RELAY_PIN) else "OFF", retain=True)
-    client.publish(T_TUNNEL, get_ssh_status(), retain=True)
-    print(f"🔄 Reboot Sync: SSH is {get_ssh_status()}, Heater is {'ON' if GPIO.input(RELAY_PIN) else 'OFF'}")
+    # --- ADD THIS LINE HERE ---
+    # This forces the dashboard to sync with the actual state of the service at boot
+    client.publish(T_TUNNEL, "ON")
+    print("🚀 Startup Sync: Tunnel set to ON")
 
 def on_message(client, userdata, msg):
+    global current_sched, last_relay_state
     payload = msg.payload.decode()
     topic = msg.topic
-    
-    # 1. Relay Control
-    if topic == T_HEATER:
-        GPIO.output(RELAY_PIN, GPIO.HIGH if payload == "ON" else GPIO.LOW)
-        print(f"🔥 Heater Command: {payload}")
 
-    # 2. SSH Tunnel Control
+
+    # 1. Master Schedule (Handles both 4-part and 5-part strings)
+    if topic == T_TIMER:
+        try:
+            # .strip() removes any hidden spaces or newlines at the ends
+            clean_payload = payload.replace('"', '').strip()
+            parts = clean_payload.split(':')
+            
+            if len(parts) >= 4:
+                # Adding .strip() here is the "Safety Net"
+                current_sched["device"]  = parts[0].upper().strip()
+                current_sched["start"]   = int(parts[1])
+                current_sched["stop"]    = int(parts[2])
+                current_sched["enabled"] = int(parts[3])
+                
+                if len(parts) == 5:
+                    current_sched["mode"] = int(parts[4])
+                else:
+                    current_sched["mode"] = 1 
+                
+                print(f"📅 Schedule Updated: {current_sched}")
+        except Exception as e:
+            print(f"❌ Schedule Format Error: {e}")
+    # 2. Relay Switch (With Loop Protection)
+    elif topic == T_HEATER:
+        new_state = payload.upper()
+        
+        # SMART CHECK: Only disable schedule if the incoming message 
+        # is DIFFERENT from what the Pi just set the relay to.
+        if new_state != last_relay_state:
+            if current_sched["enabled"] == 1:
+                current_sched["enabled"] = 0
+                # Sync 'disabled' back to Adafruit so the dashboard button turns grey
+                sync_payload = f"{current_sched['device']}:{current_sched['start']:04d}:{current_sched['stop']:04d}:0"
+                client.publish(T_TIMER, sync_payload)
+                print(f"⚠️ Manual override detected ({new_state}). Auto-Schedule disabled.")
+
+            # Physically apply the state change
+            GPIO.output(RELAY_PIN, GPIO.HIGH if new_state == "ON" else GPIO.LOW)
+            last_relay_state = new_state
+            print(f"🔥 Relay set to: {new_state}")
+        else:
+            # If the state matches, it was likely an echo of the Pi's own command.
+            # We ignore it to keep the schedule alive.
+            print(f"♻️ Echo received ({new_state}). Schedule preserved.")
+
+    # 3. Cloudflare Tunnel
     elif topic == T_TUNNEL:
         action = "start" if payload == "ON" else "stop"
-        subprocess.run(["sudo", "systemctl", action, "cloudflared"])
-        print(f"🛠 SSH Tunnel Command: {action}")
+        try:
+            subprocess.run(["sudo", "systemctl", action, "cloudflared"], check=True)
+            print(f"🛠 Tunnel: {action.upper()}")
+        except Exception as e:
+            print(f"❌ Tunnel Error: {e}")
 
-    # 3. Manual Camera Trigger
+    # 4. Manual Camera Trigger
     elif topic == T_CAMERA and payload == "SNAP":
         capture_and_send_photo(client)
 
-# --- STARTUP ---
+# --- MAIN LOOP ---
+
+time.sleep(30)
+initialize_cellular()
+
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.username_pw_set(AIO_USERNAME, AIO_KEY)
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("io.adafruit.com", 1883, 60)
-client.loop_start()
-
-last_photo_time = time.time()
-
-# --- MAIN LOOP ---
-print("🚀 Miles Heater Controller Active. Monitoring every 60s...")
 try:
+    client.connect("io.adafruit.com", 1883, 60)
+    client.loop_start()
+    
+    # Initialize state tracking
+    # Setting last_relay_state to None forces the Pi to sync on the very first loop
+    last_photo_time = 0
+    last_relay_state = None 
+    
+    print("🚀 System Online. Press Ctrl+C to stop.")
+
     while True:
-        now = time.time()
+        now_ts = time.time()
+        
+        # 1. Schedule Logic (Adaptive & Device-Aware Mode)
+        if current_sched["enabled"] == 1:
+            current_time_int = int(time.strftime("%H%M"))
+            start = current_sched["start"]
+            stop = current_sched["stop"]
+            
+            # Step A: Determine if we are in window (Handles Overnight Wrap-Around)
+            if start <= stop:
+                # Normal window (e.g., 0800 to 1700)
+                in_window = start <= current_time_int < stop
+            else:
+                # Overnight window (e.g., 2100 to 0600)
+                in_window = current_time_int >= start or current_time_int < stop
+            
+            # Step B: Determine if the device SHOULD be "Active"
+            # Mode 1: Active inside window | Mode 0: Active outside window
+            should_be_active = in_window if current_sched["mode"] == 1 else not in_window
 
-        # 1. Standard Heartbeat
-        client.publish(T_SIGNAL, get_cellular_signal())
-        client.publish(T_TEMP1, get_cpu_temp())
-        client.publish(T_TEMP2, 0.0)
-        client.publish(T_TEMP3, 0.0)
-        client.publish(T_IP, get_ip_address(), retain=True)
+            # Step C: Translate "Active" to Physical Relay & Status Text
+            # HEATER: Active = HIGH (Dashboard ON)
+            # AC:     Active = LOW  (Dashboard OFF)
+            if current_sched["device"] == "HEATER":
+                desired_relay = GPIO.HIGH if should_be_active else GPIO.LOW
+                status_text = "ON" if should_be_active else "OFF"
+            else:
+                # Logic for AC Unit (Inverted Hardware)
+                desired_relay = GPIO.LOW if should_be_active else GPIO.HIGH
+                status_text = "OFF" if should_be_active else "ON"
 
-        # 2. Scheduled 4-Hour Photo
-        if now - last_photo_time >= PHOTO_INTERVAL:
-            print("🕒 Timer Trigger: Automatic 4-hour capture.")
-            capture_and_send_photo(client)
-            last_photo_time = now
+            # Step D: Update Hardware and Adafruit only on state changes
+            if status_text != last_relay_state:
+                GPIO.output(RELAY_PIN, desired_relay)
+                client.publish(T_HEATER, status_text)
+                last_relay_state = status_text
+                print(f"📅 {current_sched['device']} is now {status_text} (In Window: {in_window})")
 
+        # 2. Heartbeat (System Telemetry)
+        try:
+            # Send the ACTUAL time to the dashboard clock
+            client.publish(T_SIGNAL, time.strftime("%H:%M:%S"))
+            
+            # Send other system health data
+            client.publish(T_IP, get_ip_address())
+            client.publish(T_CPU, get_cpu_temp())
+            
+            # Send Temperature Probes
+            probes = get_ds18b20_temps() 
+            if len(probes) >= 2:
+                client.publish(T_TEMP1, probes[0])
+                client.publish(T_TEMP2, probes[1])
+                
+        except Exception as e:
+            print(f"⚠️ Telemetry Error: {e}")
+
+        # 3. Photo Logic
+        if now_ts - last_photo_time >= PHOTO_INTERVAL:
+            try:
+                capture_and_send_photo(client)
+                last_photo_time = now_ts
+            except Exception as e:
+                print(f"📸 Camera Error: {e}")
+
+        # Governs loop speed (Interval defined at top of script, e.g., 60s)
         time.sleep(HEARTBEAT_INTERVAL)
 
 except KeyboardInterrupt:
-    print("🛑 Shutting down...")
-    GPIO.cleanup()
+    print("\n🛑 Manual shutdown initiated.")
+except Exception as e:
+    print(f"💥 Critical System Error: {e}")
+finally:
+    # Cleanup ensures the relay is released and GPIO pins are reset
     client.loop_stop()
+    client.disconnect()
+    GPIO.cleanup()
+    print("👋 Cleanup complete. Pi is safe.")
