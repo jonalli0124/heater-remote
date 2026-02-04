@@ -39,6 +39,10 @@
         .cam-container { position: relative; width: 100%; display: none; margin-top: 5px; }
         #cam-view { width: 100%; border-radius: 12px; border: 2px solid #444; display: block; }
         #cam-ts { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-family: monospace; }
+        .time-diff { font-size: 11px; color: #888; margin-left: 8px; }
+        .time-good { color: #28a745; }
+        .time-warn { color: #ffc107; }
+        .time-bad { color: #dc3545; }
     </style>
 </head>
 <body>
@@ -65,7 +69,10 @@
                 <div class="stat-box"><div class="stat-lbl">LOCAL IP</div><div class="stat-val" id="disp-ip" style="font-size:13px;">--.---</div></div>
                 <div class="stat-box" style="grid-column: span 2;">
                     <div class="stat-lbl">HEARTBEAT</div>
-                    <div class="stat-val" id="disp-time" style="font-size: 14px; font-family: monospace;">--:--:--</div>
+                    <div class="stat-val" style="font-size: 14px; font-family: monospace;">
+                        <span id="disp-time">--:--:--</span>
+                        <span id="time-diff" class="time-diff">--</span>
+                    </div>
                 </div>
             </div>
             <button class="btn btn-on" onclick="pub('ON')">ACTIVATE HEATER</button>
@@ -78,15 +85,7 @@
         </div>
 
         <div class="card" style="border: 1px solid #444;">
-            <h3 style="color:#888; margin:0 0 15px 0; font-size: 14px;">MASTER SCHEDULE</h3>
-            
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div class="stat-lbl">Target Device</div>
-                <select id="timer-device" class="timer-select" style="width: 60%;">
-                    <option value="HEATER">HEATER (Relay HIGH)</option>
-                    <option value="AC">AC UNIT (Relay LOW)</option>
-                </select>
-            </div>
+            <h3 style="color:#888; margin:0 0 15px 0; font-size: 14px;">HEATER SCHEDULE</h3>
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <div class="stat-lbl">Window Mode</div>
@@ -162,6 +161,7 @@
     let client = new Paho.MQTT.Client(BROKER, PORT, "web_" + Math.random());
     let timerEnabled = false;
     let tunnelLock = false;
+    let lastHeartbeatTime = null;
 
     const ctx = document.getElementById('tempChart').getContext('2d');
     const tempChart = new Chart(ctx, {
@@ -183,6 +183,30 @@
             plugins: { legend: { position: 'top', labels: { color: '#aaa', font: { size: 10 }, boxWidth: 10 } } }
         }
     });
+
+    // Update time difference every second
+    setInterval(updateTimeDiff, 1000);
+
+    function updateTimeDiff() {
+        if (!lastHeartbeatTime) return;
+        
+        const now = new Date();
+        const diffMs = now - lastHeartbeatTime;
+        const diffSec = Math.floor(diffMs / 1000);
+        
+        const diffEl = document.getElementById('time-diff');
+        diffEl.textContent = `(${diffSec}s ago)`;
+        
+        // Color code based on staleness
+        diffEl.className = 'time-diff';
+        if (diffSec < 90) {
+            diffEl.classList.add('time-good');
+        } else if (diffSec < 180) {
+            diffEl.classList.add('time-warn');
+        } else {
+            diffEl.classList.add('time-bad');
+        }
+    }
 
     async function attemptLogin() {
         if(document.getElementById("username-in").value === "miles" && 
@@ -212,7 +236,6 @@ async function initSystem() {
             tempChart.data.datasets[2].data = cleanHist[2].map(d => parseFloat(d.value));
             tempChart.update();
 
-            // 1. ADD 'signal' TO THE END OF THIS ARRAY
             const feeds = ['tunnel', 'relay-heater', 'ip-address', 'temp-1', 'camera', 'timer', 'signal'];
             const states = await Promise.all(feeds.map(f => 
                 fetch(`https://io.adafruit.com/api/v2/${AIO_USER}/feeds/${f}/data/last`, {
@@ -228,16 +251,22 @@ async function initSystem() {
             
             if (states[4].value.length > 500) renderImage(states[4].value, new Date(states[4].created_at));
 
-            // 2. FETCH THE HEARTBEAT (SIGNAL) VALUE (index 6 in the array)
+            // Heartbeat signal with time tracking
             if (states[6] && states[6].value) {
-                document.getElementById("disp-time").innerText = states[6].value.replace(/"/g, '');
+                const heartbeatTime = states[6].value.replace(/"/g, '');
+                document.getElementById("disp-time").innerText = heartbeatTime;
+                
+                // Parse the HH:MM:SS format and create a Date object for today
+                const [hours, minutes, seconds] = heartbeatTime.split(':').map(Number);
+                const now = new Date();
+                lastHeartbeatTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, seconds);
+                updateTimeDiff();
             }
             
             // Timer parsing (states[5])
             const timerRaw = states[5].value.replace(/"/g, '');
             const timerParts = timerRaw.split(':');
             if(timerParts.length >= 4) {
-                document.getElementById("timer-device").value = timerParts[0];
                 document.getElementById("timer-start").value = timerParts[1];
                 document.getElementById("timer-end").value = timerParts[2];
                 if(timerParts.length === 5) document.getElementById("timer-mode").value = timerParts[4];
@@ -283,15 +312,14 @@ client.onMessageArrived = (msg) => {
     const feedName = topic.split('/').pop();
     let cleanPayload = payload.replace(/^"|"$/g, '').trim();
 
-    // 1. ADD THE LOG FIRST (So everything shows up)
-    // We skip logging the massive Camera base64 string to keep the log readable
+    // Skip logging camera data
     if (feedName !== "camera") {
         addLog(`INCOMING: [${feedName.toUpperCase()}] -> ${cleanPayload}`, "#888");
     } else {
         addLog(`INCOMING: [CAMERA] -> New Frame Received`, "#17a2b8");
     }
 
-    // 2. Process specific UI updates
+    // Process specific UI updates
     if (feedName === "camera" && (cleanPayload.startsWith('/9j/') || cleanPayload.length > 500)) {
         renderImage(cleanPayload, now);
         return; 
@@ -299,6 +327,11 @@ client.onMessageArrived = (msg) => {
 
     if(feedName === "signal") {
         document.getElementById("disp-time").innerText = cleanPayload;
+        
+        // Parse time and update lastHeartbeatTime
+        const [hours, minutes, seconds] = cleanPayload.split(':').map(Number);
+        lastHeartbeatTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, seconds);
+        updateTimeDiff();
         return;
     }
 
@@ -400,14 +433,13 @@ client.onMessageArrived = (msg) => {
             btn.style.background = "#3a3a3a";
         }
 
-        const dev   = document.getElementById("timer-device").value;
         const start = document.getElementById("timer-start").value;
         const end   = document.getElementById("timer-end").value;
-        const mode  = document.getElementById("timer-mode").value; // Grab the new mode
+        const mode  = document.getElementById("timer-mode").value;
         const status = timerEnabled ? "1" : "0";
 
-        // Build the 5-part payload: DEVICE:START:STOP:ENABLED:MODE
-        const payload = `${dev}:${start}:${end}:${status}:${mode}`;
+        // Always send HEATER as device (no longer user-selectable)
+        const payload = `HEATER:${start}:${end}:${status}:${mode}`;
         
         let m = new Paho.MQTT.Message(payload);
         m.destinationName = AIO_USER + "/feeds/timer";
