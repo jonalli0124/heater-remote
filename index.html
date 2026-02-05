@@ -199,9 +199,9 @@
         
         // Color code based on staleness
         diffEl.className = 'time-diff';
-        if (diffSec < 90) {
+        if (diffSec < 180) {
             diffEl.classList.add('time-good');
-        } else if (diffSec < 180) {
+        } else if (diffSec < 300) {
             diffEl.classList.add('time-warn');
         } else {
             diffEl.classList.add('time-bad');
